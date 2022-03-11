@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 
+import joblib
 import numpy
 import pandas
 import pathlib
+
+from sklearn.preprocessing import StandardScaler
 
 def merge():
     gt = pandas.read_csv('train_gt.csv', converters={'sample_index': str})
@@ -35,6 +38,11 @@ def merge():
                 data_dict[f'diff_{i}'] = arr[i].mean() - arr[i + 1].mean()
             data = pandas.concat([data, pandas.DataFrame.from_dict([data_dict])], ignore_index=True)
     data = data.apply(pandas.to_numeric, errors='ignore')
+    for lab in ['P', 'K', 'Mg', 'pH']:
+        scaler = StandardScaler()
+        scaler.fit(data[[lab]])
+        data[[lab]] = scaler.transform(data[[lab]])
+        joblib.dump(scaler, f'models/scaler_{lab}')
     data.to_csv('data/merged.csv', index=False)
 
 if __name__== '__main__':
