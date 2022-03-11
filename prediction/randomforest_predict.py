@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import joblib
+import os
 import pandas
 import pathlib
 import sys
@@ -10,7 +11,7 @@ def predict(path_to_x: pathlib.Path):
 
     prediction = pandas.DataFrame(forest.predict(test_x), columns=['P', 'K', 'Mg', 'pH'])
 
-    prediction.to_csv('data/randomforest.csv', index=False)
+    prediction.to_csv(os.path.join(path_to_x.parent, 'randomforest.csv'), index=False)
 
 if __name__ == '__main__':
     if len(sys.argv) != 2:

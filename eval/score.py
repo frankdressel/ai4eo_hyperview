@@ -6,10 +6,10 @@ def mse(data, ref):
     return ((data - ref)**2).mean()
 
 def score():
-    data = pandas.read_csv('data/merged.csv')[['P', 'K', 'Mg', 'pH']]
-    pred_forest = pandas.read_csv('data/randomforest.csv')
+    data = pandas.read_csv('data/data_final.csv')[['P', 'K', 'Mg', 'pH']]
+    pred_forest = pandas.read_csv('data/randomforest_final.csv')
     pred_mlp = pandas.read_csv('data/mlp.csv')
-    test_y = pandas.read_csv('data/test_y.csv')
+    test_y = pandas.read_csv('data/test_y_final.csv')
 
     mse_base = mse(data, data.mean())
     mse_pred_forest = mse(pred_forest, test_y)
