@@ -14,11 +14,8 @@ from sklearn.model_selection import train_test_split
 class MergeData(MTimeMixin, luigi.Task):
     def output(self):
         return {
-                'merged': luigi.LocalTarget('merged.csv', format=luigi.format.Nop),
-                'scaler_P': luigi.LocalTarget('scaler_P', format=luigi.format.Nop),
-                'scaler_K': luigi.LocalTarget('scaler_K', format=luigi.format.Nop),
-                'scaler_Mg': luigi.LocalTarget('scaler_Mg', format=luigi.format.Nop),
-                'scaler_pH': luigi.LocalTarget('scaler_pH', format=luigi.format.Nop)
+                'merged': luigi.LocalTarget('data/merged.csv'),
+                'challenge': luigi.LocalTarget('data/challenge.csv'),
         }
 
     @staticmethod
@@ -42,24 +39,21 @@ class MergeData(MTimeMixin, luigi.Task):
         means = []
         for i in range(len(arr)):
             means.append(numpy.ma.median(arr[i]))
-        spl = UnivariateSpline(range(len(arr)), means)
-        #smeans = spl(numpy.linspace(0, len(arr), 40))
         smeans = means
         for i in range(len(smeans)):
             data_dict[f'mean_{i}'] = smeans[i]
         for i in range(len(smeans)):
-            for j in range(i + 1, len(smeans)):
-                data_dict[f'{i}/{j}'] = smeans[i]/smeans[j]
-                data_dict[f'{i}-{j}'] = (smeans[i]-smeans[j])/(smeans[i]+smeans[j])
+            if i > 0:
+                data_dict[f'd{i}'] = smeans[i] - smeans[i - 1]
 
         return data_dict
 
     def run(self):
-        gt = pandas.read_csv('train_gt.csv', converters={'sample_index': str})
-        wavelengths = pandas.read_csv('wavelengths.csv')
+        # train data
+        gt = pandas.read_csv('train_data/train_gt.csv', converters={'sample_index': str})
         _data = []
 
-        train_files = pathlib.Path('train_data').glob('*.npz')
+        train_files = pathlib.Path('train_data/train_data').glob('*.npz')
         for tf in train_files:
             with numpy.load(tf) as npz:
                 arr = numpy.ma.MaskedArray(**npz)
@@ -76,14 +70,24 @@ class MergeData(MTimeMixin, luigi.Task):
         data = pandas.DataFrame.from_dict(_data)
         data = data.apply(pandas.to_numeric, errors='ignore')
 
-        #for lab in ['P', 'K', 'Mg', 'pH']:
-        #    scaler = StandardScaler()
-        #    scaler.fit(data[[lab]])
-        #    data[[lab]] = scaler.transform(data[[lab]])
-        #    with self.output()['scaler_' + lab].open('wb') as f:
-        #        joblib.dump(scaler, f)
-
         with self.output()['merged'].open('w') as f:
+            data.to_csv(f, index=False)
+
+        # Challenge test data
+        _data = []
+
+        test_files = pathlib.Path('test_data').glob('*.npz')
+        for tf in test_files:
+            with numpy.load(tf) as npz:
+                arr = numpy.ma.MaskedArray(**npz)
+                sample_name = tf.name.replace('.npz', '')
+                data_dict = MergeData._prepare_arr(arr, sample_name)
+
+                _data.append(data_dict)
+        data = pandas.DataFrame.from_dict(_data)
+        data = data.apply(pandas.to_numeric, errors='ignore')
+
+        with self.output()['challenge'].open('w') as f:
             data.to_csv(f, index=False)
 
 class Split(MTimeMixin, luigi.Task):
@@ -92,10 +96,10 @@ class Split(MTimeMixin, luigi.Task):
 
     def output(self):
         return {
-                'train_x': luigi.LocalTarget('train_x.csv', format=luigi.format.Nop),
-                'train_y': luigi.LocalTarget('train_y.csv', format=luigi.format.Nop),
-                'test_x': luigi.LocalTarget('test_x.csv', format=luigi.format.Nop),
-                'test_y': luigi.LocalTarget('test_y.csv', format=luigi.format.Nop),
+                'train_x': luigi.LocalTarget('data/train_x.csv'),
+                'train_y': luigi.LocalTarget('data/train_y.csv'),
+                'test_x': luigi.LocalTarget('data/test_x.csv'),
+                'test_y': luigi.LocalTarget('data/test_y.csv'),
         }
 
     def run(self):
@@ -103,10 +107,10 @@ class Split(MTimeMixin, luigi.Task):
             df = pandas.read_csv(f)
 
         train, test = train_test_split(df)
-        train_x = train.drop(labels=['P', 'K', 'Mg','pH', 'sample'], axis=1)
-        train_y = train[['P', 'K', 'Mg','pH']]
-        test_x = test.drop(labels=['P', 'K', 'Mg','pH', 'sample'], axis=1)
-        test_y = test[['P', 'K', 'Mg','pH']]
+        train_x = train.drop(labels=['P', 'K', 'Mg','pH'], axis=1)
+        train_y = train[['P', 'K', 'Mg','pH', 'sample']]
+        test_x = test.drop(labels=['P', 'K', 'Mg','pH'], axis=1)
+        test_y = test[['P', 'K', 'Mg','pH', 'sample']]
 
         with self.output()['train_x'].open('w') as f:
             train_x.to_csv(f, index=False)

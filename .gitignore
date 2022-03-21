@@ -1,1 +1,6 @@
 *.swp
+venv
+test_data.zip
+train_data.zip
+test_data
+train_data
