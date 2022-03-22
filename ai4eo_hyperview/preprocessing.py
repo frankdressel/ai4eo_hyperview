@@ -38,13 +38,14 @@ class MergeData(MTimeMixin, luigi.Task):
         
         means = []
         for i in range(len(arr)):
-            means.append(numpy.ma.median(arr[i]))
+            means.append(arr[i].mean() / (arr.sum() / arr.mask[0].sum()))
         smeans = means
         for i in range(len(smeans)):
             data_dict[f'mean_{i}'] = smeans[i]
         for i in range(len(smeans)):
             if i > 0:
                 data_dict[f'd{i}'] = smeans[i] - smeans[i - 1]
+        data_dict['average_refl'] = arr.sum() / arr.mask[0].sum()
 
         return data_dict
 

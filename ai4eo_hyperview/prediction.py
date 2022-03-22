@@ -20,29 +20,27 @@ class RandomForest(MTimeMixin, luigi.Task):
 
     def run(self):
         with self.input()['Split']['train_x'].open('r') as f:
-            train_x = pandas.read_csv(f)
+            train_x = pandas.read_csv(f).drop(['sample', 'size_x', 'size_y'], axis=1)
         with self.input()['Split']['train_y'].open('r') as f:
-            train_y = pandas.read_csv(f).drop(columns=['sample']).values
+            train_y = pandas.read_csv(f).drop(columns=['sample'])
         with self.input()['Split']['test_x'].open('r') as f:
-            test_x = pandas.read_csv(f)
+            test_x = pandas.read_csv(f).drop(['sample', 'size_x', 'size_y'], axis=1)
         with self.input()['Split']['test_y'].open('r') as f:
-            test_y = pandas.read_csv(f).drop(columns=['sample']).values
+            test_y = pandas.read_csv(f).drop(columns=['sample'])
 
-        forest = RandomForestRegressor(n_jobs=4)
-        #params = {
-        #        'max_features': [10, 20, 30, 50, 100],
-        #        'max_samples': [0.1, 0.2, 0.5, 1.0],
-        #        'max_depth': [2, 5, 10, 15, 20],
-        #}
-        #params = {
-        #        'n_estimators': [100, 200, 500],
-        #        'max_depth': [5, 10, 15, 20],
-        #        'ccp_alpha': [0.0, 0.1, 0.5, 1.0]
-        #}
-        #regr = GridSearchCV(forest, params, scoring='neg_mean_absolute_error')
-        #regr.fit(train_x, train_y)
-        forest.fit(train_x, train_y)
+        tot_x = pandas.concat([train_x, test_x])
+        tot_y = pandas.concat([train_y, test_y])
+
+        paras = {
+                'max_features': ['auto', 'sqrt', 'log2'],
+                'max_depth': [None, 5, 10, 20],
+                'min_weight_fraction_leaf': [0, 0.5],
+                'ccp_alpha': [0, 0.5]
+        }
+        regr = RandomForestRegressor(n_jobs=4, n_estimators=500)
+
+        gs = GridSearchCV(regr, paras)
+        gs.fit(tot_x, tot_y)
 
         with self.output()['randomforest'].open('wb') as f:
-            #joblib.dump(regr, f)
-            joblib.dump(forest, f)
+            joblib.dump(gs, f)
