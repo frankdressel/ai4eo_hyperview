@@ -155,7 +155,6 @@ def get_data(path: Path, preprocess_fn: Callable, mean: np.ndarray, var: np.ndar
                                   images]
 
     processed_test = []
-    indices = []
     # normalize and preprocess to single size
     for img in img_data:
         norm = (img.astype(np.float32) - mean) / var
