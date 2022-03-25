@@ -1,5 +1,6 @@
 import typing
 from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
 from typing import Callable
 
@@ -10,6 +11,8 @@ from flax import struct
 
 DATA_PATH = Path("/home/hoff_nl/datasets/ai4eo/train_data/train_data")
 LABEL_PATH = Path("/home/hoff_nl/datasets/ai4eo/train_data/train_gt.csv")
+
+TEST_DATA_PATH = Path("/home/hoff_nl/datasets/ai4eo/test_data")
 
 
 @dataclass
@@ -31,6 +34,10 @@ def train_test_split(sample_count: int, test_split) -> Split:
 def sample_count() -> int:
     assert len(pd.read_csv(LABEL_PATH)) == len(list(DATA_PATH.glob("*.npz")))
     return len(list(DATA_PATH.glob("*.npz")))
+
+
+def test_samples() -> int:
+    return len(list(TEST_DATA_PATH.glob("*.npz")))
 
 
 @dataclass
@@ -78,7 +85,9 @@ class ImageData:
 
 
 def prepare_data(data_path: Path, split: Split, preprocess_fn) -> ImageData:
-    images = data_path.glob("*.npz")
+    images = list(data_path.glob("*.npz"))
+    # its a bad natural sort
+    images.sort(key=lambda p: int(str(p).split("/")[-1].split(".")[0]))
 
     # Load all images to memory, dataset is small enough to not worry about it
     # Channels last format (transpose)
@@ -132,6 +141,31 @@ class Pipeline:
     input_shape: tuple[int]
     baseline_mse: np.ndarray  # for score calc
 
+    labels: LabelData
+    images: ImageData
+
+def get_data(path: Path, preprocess_fn: Callable, mean: np.ndarray, var: np.ndarray) -> np.ndarray:
+    images = list(path.glob("*.npz"))
+    # its a bad natural sort
+    images.sort(key=lambda p: int(str(p).split("/")[-1].split(".")[0]))
+
+    # Load all images to memory, dataset is small enough to not worry about it
+    # Channels last format (transpose)
+    img_data: list[np.ndarray] = [np.ma.MaskedArray(**np.load(str(image))).data.transpose((1, 2, 0)) for image in
+                                  images]
+
+    processed_test = []
+    indices = []
+    # normalize and preprocess to single size
+    for img in img_data:
+        norm = (img.astype(np.float32) - mean) / var
+        preprocessed = preprocess_fn(norm)
+        processed_test.append(preprocessed)
+
+    return np.array(processed_test)
+
+get_test_data = partial(get_data, path=TEST_DATA_PATH)
+get_train_data = partial(get_data, path=DATA_PATH)
 
 def get_data_pipeline(split: Split, batch_size: int, preprocess_img: Callable):
     labels = prepare_labels(LABEL_PATH, split)
@@ -163,4 +197,11 @@ def get_data_pipeline(split: Split, batch_size: int, preprocess_img: Callable):
 
     shape = next(train_generator()).image.shape
 
-    return Pipeline(train_generator, test_generator, input_shape=shape, baseline_mse=labels.baseline_mse)
+    return Pipeline(
+        train_generator,
+        test_generator,
+        input_shape=shape,
+        baseline_mse=labels.baseline_mse,
+        labels=labels,
+        images=images
+    )

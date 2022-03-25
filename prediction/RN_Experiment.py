@@ -5,13 +5,14 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import optax
-from flax.jax_utils import prefetch_to_device
+import pandas as pd
 from flax.training import checkpoints
 from flax.training import train_state
 from skimage.transform import resize
 
 from prediction.ResNetModel import ResNet50
-from preprocessing.pipeline import Pipeline, Batch, get_data_pipeline, train_test_split, sample_count
+from preprocessing.pipeline import Pipeline, Batch, get_data_pipeline, train_test_split, sample_count, get_test_data, \
+    get_train_data
 
 
 class ResNetExperiment:
@@ -105,7 +106,7 @@ class ResNetExperiment:
 
     def save_checkpoint(self):
         step = int(self.state.step)
-        checkpoints.save_checkpoint(self.workdir, self.state, step, keep=3)
+        checkpoints.save_checkpoint(self.workdir, self.state, step, keep=3, overwrite=True)
 
     def train_epochs(self, epochs: int):
 
@@ -144,16 +145,37 @@ class ResNetExperiment:
             if epoch % self.safe_every_epoch == 0:
                 self.save_checkpoint()
 
+    def predict(self, data: np.ndarray):
+        predictions = self.state.apply_fn(
+            {'params': self.state.params, 'batch_stats': self.state.batch_stats},
+            data, mutable=False, train=False)
+        return predictions
 
-if __name__ == '__main__':
+
+def main():
     input_shape = (64, 64, 150)
-
 
     def preprocess_img(img):
         return resize(img.astype(np.float32), input_shape)
-
 
     split = train_test_split(sample_count(), 0.3)
     pipeline = get_data_pipeline(split, batch_size=64, preprocess_img=preprocess_img)
     experiment = ResNetExperiment(pipeline, False)
     experiment.train_epochs(1000)
+
+    test_data = get_test_data(preprocess_img, pipeline.images.mean, pipeline.images.std_var)
+    test_preds = experiment.predict(test_data)
+
+    # denormalize
+    denorm_test_preds = (test_preds * pipeline.labels.std_dev) + pipeline.labels.mean
+    pd.DataFrame(denorm_test_preds).to_csv("workdir/test_pred.csv")
+
+    # also pred training data as test
+    train_data = get_train_data(preprocess_img, pipeline.images.mean, pipeline.images.std_var)
+    train_preds = experiment.predict(train_data)
+    denorm_train_preds = (train_preds * pipeline.labels.std_dev) + pipeline.labels.mean
+    pd.DataFrame(denorm_train_preds).to_csv("workdir/train_pred.csv")
+
+
+if __name__ == '__main__':
+    main()
