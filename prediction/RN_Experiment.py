@@ -125,13 +125,14 @@ class ResNetExperiment:
                 eval_metric = self.eval_step(batch)
                 eval_metrics.append(eval_metric)
 
+            # This doesn't seem like the clearest way to do it.
             train_summary = {
                 f"train_{k}": v
-                for k, v in jax.tree_map(lambda x: x.mean(), train_metrics).items()
+                for k, v in jax.tree_multimap(lambda *x: jnp.array(x).mean(), *train_metrics).items()
             }
             eval_summary = {
                 f"eval_{k}": v
-                for k, v in jax.tree_map(lambda x: x.mean(), train_metrics).items()
+                for k, v in jax.tree_multimap(lambda *x: jnp.array(x).mean(), *eval_metrics).items()
             }
 
             if epoch % self.print_every_epoch == 0:
