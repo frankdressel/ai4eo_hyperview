@@ -36,7 +36,7 @@ class ResNetExperiment:
         batch_stats = variables["batch_stats"]
 
         # LR schedule
-        steps_per_epoch = 1190 // 32 # estimate tbh
+        steps_per_epoch = 1190 // self.input_shape[0] # estimate tbh
         base_learning_rate = 0.5
         num_epochs = 500
         warmup_epochs = 10
