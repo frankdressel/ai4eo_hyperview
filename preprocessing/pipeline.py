@@ -46,7 +46,7 @@ class LabelData:
 
 def prepare_labels(label_path: Path, split: Split) -> LabelData:
     labels = pd.read_csv(label_path)
-    label_arr = labels.to_numpy()[:, 1:] # remove idx column
+    label_arr = labels.to_numpy()[:, 1:]  # remove idx column
 
     train_label_data = label_arr[split.train_samples, :]
 
@@ -55,12 +55,12 @@ def prepare_labels(label_path: Path, split: Split) -> LabelData:
     var = np.std(train_label_data, axis=0)
 
     label_arr = (label_arr - mean) / var
-
-    baseline_algo = label_arr.mean(axis=0)
-    baseline_error = ((label_arr - baseline_algo) ** 2).mean(axis=0)
-
+    norm_train = label_arr[split.train_samples, :]
+    baseline_algo = norm_train.mean(axis=0)
+    baseline_error = ((norm_train - baseline_algo) ** 2).mean(axis=0)
+    # -> always 1. I dont know what i expected after normalizing the data.
     return LabelData(
-        label_arr[split.train_samples, :],
+        norm_train,
         test_label_data=label_arr[split.test_samples, :],
         std_dev=var,
         mean=mean,
@@ -91,9 +91,8 @@ def prepare_data(data_path: Path, split: Split, preprocess_fn) -> ImageData:
 
     means, variances = [], []
     for img in train_img_data:
-        # mean axis = [0, 1] -> mean axis [0], mean axis [0]. Np doesnt do reduction along multiple axis
-        means.append(img.mean(axis=0).mean(axis=0))
-        variances.append(img.std(axis=0).mean(axis=0))
+        means.append(img.astype(np.float32).reshape((-1, 150)).mean(axis=0))
+        variances.append(img.astype(np.float32).reshape((-1, 150)).std(axis=0))
 
     mean = np.array(means).mean(axis=0)
     var = np.array(variances).mean(axis=0)
@@ -101,16 +100,15 @@ def prepare_data(data_path: Path, split: Split, preprocess_fn) -> ImageData:
     processed_train = []
     # normalize and preprocess to single size
     for img in train_img_data:
-        norm = (img - mean) / var
+        norm = (img.astype(np.float32) - mean) / var
         preprocessed = preprocess_fn(norm)
         processed_train.append(preprocessed)
 
     processed_test = []
     for img in test_img_data:
-        norm = (img - mean) / var
+        norm = (img.astype(np.float32) - mean) / var
         preprocessed = preprocess_fn(norm)
         processed_test.append(preprocessed)
-
 
     return ImageData(
         np.array(processed_train),
