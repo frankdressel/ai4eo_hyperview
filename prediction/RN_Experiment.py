@@ -66,6 +66,7 @@ class ResNetExperiment:
         if not debug:
             self.train_step = jax.jit(self.train_step)
             self.eval_step = jax.jit(self.eval_step)
+            self.metrics = jax.jit(self.metrics)
 
     def train_step(self, state: TrainState, batch: Batch):
         def loss_fn(params):

@@ -174,7 +174,6 @@ def get_data_pipeline(split: Split, batch_size: int, preprocess_img: Callable):
     test_samples_count = labels.test_label_data.shape[0]
 
     print(f"Using {train_samples_count} training samples, {test_samples_count} testing samples")
-    print(f"Dropping last {test_samples_count % batch_size} test samples")
 
     shuffle_idx = np.arange(train_samples_count)
 
@@ -184,7 +183,9 @@ def get_data_pipeline(split: Split, batch_size: int, preprocess_img: Callable):
         # skips the last elements which dont form a complete batch. Should be fine due to shuffling
         for batch_pos in range(0, train_samples_count, batch_size):
             train_samples = shuffle_idx[batch_pos:batch_pos + batch_size]
-
+            if len(train_samples) != batch_size:
+                # skip incomplete batch
+                continue
             data_batch = images.train_images[train_samples]
             label_batch = labels.train_label_data[train_samples]
 
@@ -197,7 +198,6 @@ def get_data_pipeline(split: Split, batch_size: int, preprocess_img: Callable):
 
             yield Batch(data_batch, label_batch)
 
-        # TODO: Just drop last incomplete batch? Or drop + shuffle? Or introduce batch masking+padding
 
     shape = next(train_generator()).image.shape
 
