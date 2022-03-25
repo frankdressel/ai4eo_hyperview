@@ -20,6 +20,7 @@ class Split:
 
 def train_test_split(sample_count: int, test_split) -> Split:
     idx = np.arange(sample_count)
+    np.random.seed(42)
     np.random.shuffle(idx)
     test_samples = int((sample_count * test_split))
     train_samples = sample_count - test_samples
@@ -55,7 +56,7 @@ def prepare_labels(label_path: Path, split: Split) -> LabelData:
     label_arr = (label_arr - mean) / var
 
     baseline_algo = np.mean(label_arr.mean(axis=0))
-    baseline_error = ((label_arr - baseline_algo) ** 2).mean()
+    baseline_error = ((label_arr - baseline_algo) ** 2).mean(axis=0)
 
     return LabelData(
         train_label_data,

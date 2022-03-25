@@ -37,8 +37,8 @@ class ResNetExperiment:
 
         # LR schedule
         steps_per_epoch = 1190 // 32 # estimate tbh
-        base_learning_rate = 0.05
-        num_epochs = 100
+        base_learning_rate = 0.5
+        num_epochs = 500
         warmup_epochs = 10
         warmup_fn = optax.linear_schedule(
             init_value=0., end_value=base_learning_rate,
@@ -50,7 +50,7 @@ class ResNetExperiment:
         schedule_fn = optax.join_schedules(
             schedules=[warmup_fn, cosine_fn],
             boundaries=[warmup_epochs * steps_per_epoch])
-
+        self.lr_fun = schedule_fn
         tx = optax.adam(learning_rate=schedule_fn)
         self.state = ResNetExperiment.TrainState.create(
             apply_fn=model.apply,
@@ -62,7 +62,7 @@ class ResNetExperiment:
 
         if not debug:
             self.train_step = jax.jit(self.train_step)
-            self.metrics = jax.jit(self.metrics)
+            self.eval_step = jax.jit(self.eval_step)
 
     def train_step(self, state: TrainState, batch: Batch):
         def loss_fn(params):
@@ -96,7 +96,7 @@ class ResNetExperiment:
         return self.metrics(predictions, batch.label)
 
     def metrics(self, pred, label):
-        mse = ((pred - label) ** 2).mean()
+        mse = ((pred - label) ** 2).mean(axis=0)
         score = mse / self.pipeline.baseline_mse
         return {
             "mse": mse,
@@ -137,6 +137,7 @@ class ResNetExperiment:
 
             if epoch % self.print_every_epoch == 0:
                 print(f"Epoch {epoch}, took: {time.time() - epoch_start}")
+                print(f"LR: {self.lr_fun(self.state.step)}")
                 print(f"train metrics: \n \t {train_summary}")
                 print(f"eval metrics: \n \t {eval_summary}")
 
@@ -145,13 +146,13 @@ class ResNetExperiment:
 
 
 if __name__ == '__main__':
-    input_shape = (32, 32, 150)
+    input_shape = (64, 64, 150)
 
 
     def preprocess_img(img):
         return jax.image.resize(img, input_shape, "nearest")
 
     split = train_test_split(sample_count(), 0.3)
-    pipeline = get_data_pipeline(split, batch_size=32, preprocess_img=preprocess_img)
+    pipeline = get_data_pipeline(split, batch_size=128, preprocess_img=preprocess_img)
     experiment = ResNetExperiment(pipeline, False)
-    experiment.train_epochs(100)
+    experiment.train_epochs(500)
