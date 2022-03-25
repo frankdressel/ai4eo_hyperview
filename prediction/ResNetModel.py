@@ -93,6 +93,7 @@ class ResNet(nn.Module):
                                    conv=conv,
                                    norm=norm,
                                    act=self.act)(x)
+                x = nn.Dropout(rate=0.2, deterministic=not train)(x)
         x = jnp.mean(x, axis=(1, 2))
         x = nn.Dense(self.num_classes, dtype=self.dtype)(x)
         x = jnp.asarray(x, self.dtype)

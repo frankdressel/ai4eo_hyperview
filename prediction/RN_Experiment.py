@@ -32,8 +32,9 @@ class ResNetExperiment:
 
         model = ResNet50(num_classes=4)
 
-        init_key = jax.random.PRNGKey(0)
-        variables = model.init({"params": init_key}, jnp.ones(self.input_shape))
+        init_key, dropout_key = jax.random.split(jax.random.PRNGKey(0))
+
+        variables = model.init({"params": init_key, "dropout": dropout_key}, jnp.ones(self.input_shape))
         params = variables["params"]
         batch_stats = variables["batch_stats"]
 
@@ -68,29 +69,31 @@ class ResNetExperiment:
             self.eval_step = jax.jit(self.eval_step)
             self.metrics = jax.jit(self.metrics)
 
-    def train_step(self, state: TrainState, batch: Batch):
+    def train_step(self, state: TrainState, batch: Batch, dropout_rng: jax.random.PRNGKey):
         def loss_fn(params):
             pred, new_model_state = state.apply_fn(
-                {'params': params, 'batch_stats': state.batch_stats}, batch.image, mutable=['batch_stats'])
+                {'params': params, 'batch_stats': state.batch_stats},
+                batch.image, mutable=['batch_stats'],
+                rngs={'dropout': dropout_rng})
             loss = self.model_loss(pred, batch.label)
 
             weight_penalty_params = jax.tree_leaves(params)
-            weight_decay = 0.0
+            weight_decay = 5e-3
             weight_l2 = sum([jnp.sum(x ** 2)
                              for x in weight_penalty_params
                              if x.ndim > 1])
             weight_penalty = weight_decay * 0.5 * weight_l2
             loss = loss + weight_penalty
 
-            return loss, (new_model_state, pred)
+            return loss, (new_model_state, pred, weight_penalty)
 
         grad_fn = jax.value_and_grad(loss_fn, has_aux=True)
         aux, grad = grad_fn(state.params)
 
         loss = aux[0]
-        new_model_state, preds = aux[1]
+        new_model_state, preds, weight_penalty = aux[1]
         new_state = state.apply_gradients(grads=grad, batch_stats=new_model_state["batch_stats"])
-        return new_state, loss, preds
+        return new_state, loss, preds, weight_penalty
 
     def eval_step(self, state: TrainState, batch: Batch):
         predictions = state.apply_fn(
@@ -151,19 +154,20 @@ class ResNetExperiment:
     def train_epochs(self, epochs: int):
 
         for epoch in range(epochs):
-            train_losses, train_metrics = [], []
+            train_metrics = []
             eval_metrics = []
             epoch_start = time.time()
 
             for batch in self.pipeline.train_generator():
-                augment_key, state_key = jax.random.split(self.state.augment_key)
+                augment_key, dropout_key, state_key = jax.random.split(self.state.augment_key, 3)
                 self.state.replace(augment_key=state_key)
                 augmented = self.augment(batch.image, augment_key)
                 augmented_batch = Batch(augmented, batch.label)
-                state, loss, predictions = self.train_step(self.state, augmented_batch)
+                state, loss, predictions, weight_penalty = self.train_step(self.state, augmented_batch, dropout_key)
                 metrics = self.metrics(predictions, batch.label)
-                train_losses.append(loss)
+                metrics["weight_penalty"] = weight_penalty
                 train_metrics.append(metrics)
+
                 self.state = state
 
             for batch in self.pipeline.test_generator():
