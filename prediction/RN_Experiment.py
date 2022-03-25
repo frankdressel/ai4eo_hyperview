@@ -37,9 +37,9 @@ class ResNetExperiment:
         batch_stats = variables["batch_stats"]
 
         # LR schedule
-        steps_per_epoch = 1190 // self.input_shape[0]  # estimate tbh
-        base_learning_rate = 0.1
-        num_epochs = 1000
+        steps_per_epoch = 1200 // self.input_shape[0]  # estimate tbh
+        base_learning_rate = 0.02
+        num_epochs = 500
         warmup_epochs = 10
         warmup_fn = optax.linear_schedule(
             init_value=0., end_value=base_learning_rate,
@@ -161,7 +161,7 @@ def main():
     split = train_test_split(sample_count(), 0.3)
     pipeline = get_data_pipeline(split, batch_size=64, preprocess_img=preprocess_img)
     experiment = ResNetExperiment(pipeline, False)
-    experiment.train_epochs(1000)
+    experiment.train_epochs(500)
 
     test_data = get_test_data(preprocess_img, pipeline.images.mean, pipeline.images.std_var)
     test_preds = experiment.predict(test_data)
