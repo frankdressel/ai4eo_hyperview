@@ -114,14 +114,14 @@ class ResNetExperiment:
             eval_metrics = []
             epoch_start = time.time()
 
-            for batch in prefetch_to_device(self.pipeline.train_generator(), 2, devices=jax.devices()[0]):
+            for batch in prefetch_to_device(self.pipeline.train_generator(), 2, devices=[jax.devices()[0]]):
                 state, loss, predictions = self.train_step(self.state, batch)
                 metrics = self.metrics(predictions, batch.label)
                 train_losses.append(loss)
                 train_metrics.append(metrics)
                 self.state = state
 
-            for batch in prefetch_to_device(self.pipeline.test_generator(), 2, devices=jax.devices()[0]):
+            for batch in prefetch_to_device(self.pipeline.test_generator(), 2, devices=[jax.devices()[0]]):
                 eval_metric = self.eval_step(batch)
                 eval_metrics.append(eval_metric)
 

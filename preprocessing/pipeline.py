@@ -86,8 +86,8 @@ def prepare_data(data_path: Path, split: Split, preprocess_fn) -> ImageData:
                                   images]
 
     # probably possible in a more efficient way..
-    train_img_data = np.array(img_data)[split.train_samples]
-    test_img_data = np.array(img_data)[split.test_samples]
+    train_img_data = np.array(img_data, dtype=object)[split.train_samples]
+    test_img_data = np.array(img_data, dtype=object)[split.test_samples]
 
     means, variances = [], []
     for img in train_img_data:
