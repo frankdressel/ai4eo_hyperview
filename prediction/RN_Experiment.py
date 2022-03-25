@@ -22,8 +22,8 @@ class ResNetExperiment:
         self.pipeline = pipeline
         self.workdir = "workdir"  # TODO - Figure out the usual experiment management
 
-        self.print_every_epoch = 1
-        self.safe_every_epoch = 10
+        self.print_every_epoch = 10
+        self.safe_every_epoch = 100
 
         self.input_shape = pipeline.input_shape
         self.debug = debug
@@ -37,8 +37,8 @@ class ResNetExperiment:
 
         # LR schedule
         steps_per_epoch = 1190 // self.input_shape[0]  # estimate tbh
-        base_learning_rate = 0.5
-        num_epochs = 500
+        base_learning_rate = 0.1
+        num_epochs = 1000
         warmup_epochs = 10
         warmup_fn = optax.linear_schedule(
             init_value=0., end_value=base_learning_rate,
@@ -156,4 +156,4 @@ if __name__ == '__main__':
     split = train_test_split(sample_count(), 0.3)
     pipeline = get_data_pipeline(split, batch_size=64, preprocess_img=preprocess_img)
     experiment = ResNetExperiment(pipeline, False)
-    experiment.train_epochs(500)
+    experiment.train_epochs(1000)
