@@ -4,7 +4,7 @@ from typing import Any
 import jax
 import jax.numpy as jnp
 import numpy as np
-
+from skimage.transform import resize
 import optax
 import scipy
 from flax.training import checkpoints
@@ -150,7 +150,7 @@ if __name__ == '__main__':
 
 
     def preprocess_img(img):
-        return jax.image.resize(img, input_shape, "nearest")
+        return resize(img.astype(np.float32), input_shape)
 
     split = train_test_split(sample_count(), 0.3)
     pipeline = get_data_pipeline(split, batch_size=128, preprocess_img=preprocess_img)
