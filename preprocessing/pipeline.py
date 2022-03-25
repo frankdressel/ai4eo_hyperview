@@ -47,19 +47,20 @@ class LabelData:
 def prepare_labels(label_path: Path, split: Split) -> LabelData:
     labels = pd.read_csv(label_path)
     label_arr = labels.to_numpy()[:, 1:] # remove idx column
+
     train_label_data = label_arr[split.train_samples, :]
 
     # normalization
-    mean = np.mean(train_label_data)
-    var = np.std(train_label_data)
+    mean = np.mean(train_label_data, axis=0)
+    var = np.std(train_label_data, axis=0)
 
     label_arr = (label_arr - mean) / var
 
-    baseline_algo = np.mean(label_arr.mean(axis=0))
+    baseline_algo = label_arr.mean(axis=0)
     baseline_error = ((label_arr - baseline_algo) ** 2).mean(axis=0)
 
     return LabelData(
-        train_label_data,
+        label_arr[split.train_samples, :],
         test_label_data=label_arr[split.test_samples, :],
         std_dev=var,
         mean=mean,

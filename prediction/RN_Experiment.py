@@ -4,11 +4,11 @@ from typing import Any
 import jax
 import jax.numpy as jnp
 import numpy as np
-from skimage.transform import resize
 import optax
-import scipy
+from flax.jax_utils import prefetch_to_device
 from flax.training import checkpoints
 from flax.training import train_state
+from skimage.transform import resize
 
 from prediction.ResNetModel import ResNet50
 from preprocessing.pipeline import Pipeline, Batch, get_data_pipeline, train_test_split, sample_count
@@ -20,7 +20,7 @@ class ResNetExperiment:
 
     def __init__(self, pipeline: Pipeline, debug=False):
         self.pipeline = pipeline
-        self.workdir = "workdir"  # TODO - Figure out the usualk experiment management
+        self.workdir = "workdir"  # TODO - Figure out the usual experiment management
 
         self.print_every_epoch = 1
         self.safe_every_epoch = 10
@@ -36,7 +36,7 @@ class ResNetExperiment:
         batch_stats = variables["batch_stats"]
 
         # LR schedule
-        steps_per_epoch = 1190 // self.input_shape[0] # estimate tbh
+        steps_per_epoch = 1190 // self.input_shape[0]  # estimate tbh
         base_learning_rate = 0.5
         num_epochs = 500
         warmup_epochs = 10
@@ -114,14 +114,14 @@ class ResNetExperiment:
             eval_metrics = []
             epoch_start = time.time()
 
-            for batch in self.pipeline.train_generator():
+            for batch in prefetch_to_device(self.pipeline.train_generator(), 2, devices=jax.devices()[0]):
                 state, loss, predictions = self.train_step(self.state, batch)
                 metrics = self.metrics(predictions, batch.label)
                 train_losses.append(loss)
                 train_metrics.append(metrics)
                 self.state = state
 
-            for batch in self.pipeline.test_generator():
+            for batch in prefetch_to_device(self.pipeline.test_generator(), 2, devices=jax.devices()[0]):
                 eval_metric = self.eval_step(batch)
                 eval_metrics.append(eval_metric)
 
@@ -152,7 +152,8 @@ if __name__ == '__main__':
     def preprocess_img(img):
         return resize(img.astype(np.float32), input_shape)
 
+
     split = train_test_split(sample_count(), 0.3)
-    pipeline = get_data_pipeline(split, batch_size=128, preprocess_img=preprocess_img)
+    pipeline = get_data_pipeline(split, batch_size=64, preprocess_img=preprocess_img)
     experiment = ResNetExperiment(pipeline, False)
     experiment.train_epochs(500)
