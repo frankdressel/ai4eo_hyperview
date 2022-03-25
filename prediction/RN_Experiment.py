@@ -89,9 +89,9 @@ class ResNetExperiment:
 
         return new_state, loss, preds
 
-    def eval_step(self, batch: Batch):
-        predictions = self.state.apply_fn(
-            {'params': self.state.params, 'batch_stats': self.state.batch_stats},
+    def eval_step(self, state: TrainState, batch: Batch):
+        predictions = state.apply_fn(
+            {'params': state.params, 'batch_stats': state.batch_stats},
             batch.image, mutable=False, train=False)
         return self.metrics(predictions, batch.label)
 
@@ -122,7 +122,7 @@ class ResNetExperiment:
                 self.state = state
 
             for batch in self.pipeline.test_generator():
-                eval_metric = self.eval_step(batch)
+                eval_metric = self.eval_step(self.state, batch)
                 eval_metrics.append(eval_metric)
 
             # This doesn't seem like the clearest way to do it.
