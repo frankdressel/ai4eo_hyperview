@@ -172,6 +172,11 @@ def get_data_pipeline(split: Split, batch_size: int, preprocess_img: Callable):
     images = prepare_data(DATA_PATH, split, preprocess_img)
 
     train_samples_count = labels.train_label_data.shape[0]
+    test_samples_count = labels.test_label_data.shape[0]
+
+    print(f"Using {train_samples_count} training samples, {test_samples_count} testing samples")
+    print(f"Dropping last {test_samples_count % batch_size} test samples")
+
     shuffle_idx = np.arange(train_samples_count)
 
     def train_generator():
@@ -187,9 +192,9 @@ def get_data_pipeline(split: Split, batch_size: int, preprocess_img: Callable):
             yield Batch(data_batch, label_batch)
 
     def test_generator():
-        for batch_pos in range(0, train_samples_count, batch_size):
-            data_batch = images.train_images[batch_pos:batch_pos + batch_size]
-            label_batch = labels.train_label_data[batch_pos:batch_pos + batch_size]
+        for batch_pos in range(0, test_samples_count, batch_size):
+            data_batch = images.test_images[batch_pos:batch_pos + batch_size]
+            label_batch = labels.test_label_data[batch_pos:batch_pos + batch_size]
 
             yield Batch(data_batch, label_batch)
 
