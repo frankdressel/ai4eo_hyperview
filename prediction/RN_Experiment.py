@@ -5,7 +5,9 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import optax
+from clu import metric_writers
 import pandas as pd
+from flax import struct
 from flax.training import checkpoints
 from flax.training import train_state
 from skimage.transform import resize
@@ -15,14 +17,24 @@ from preprocessing.pipeline import Pipeline, Batch, get_data_pipeline, train_tes
     get_train_data
 
 
+@struct.dataclass
+class ExperimentConfig:
+    dropout_rate: float
+    weight_decay: float
+    train_epochs: int
+    warmup_epochs: int
+    base_lr: float
+
+
 class ResNetExperiment:
     class TrainState(train_state.TrainState):
         batch_stats: Any
         augment_key: jax.random.PRNGKey
 
-    def __init__(self, pipeline: Pipeline, debug=False):
+    def __init__(self, config: ExperimentConfig, pipeline: Pipeline, workdir, debug=False):
         self.pipeline = pipeline
-        self.workdir = "workdir"  # TODO - Figure out the usual experiment management
+        self.workdir = workdir
+        self.config = config
 
         self.print_every_epoch = 10
         self.safe_every_epoch = 100
@@ -30,7 +42,7 @@ class ResNetExperiment:
         self.input_shape = pipeline.input_shape
         self.debug = debug
 
-        model = ResNet50(num_classes=4)
+        model = ResNet50(num_classes=4, dropout_rate=config.dropout_rate)
 
         init_key, dropout_key = jax.random.split(jax.random.PRNGKey(0))
 
@@ -39,10 +51,10 @@ class ResNetExperiment:
         batch_stats = variables["batch_stats"]
 
         # LR schedule
-        steps_per_epoch = 1213 // self.input_shape[0]  # estimate tbh
-        base_learning_rate = 0.02
-        num_epochs = 500
-        warmup_epochs = 10
+        steps_per_epoch = 1213 // self.input_shape[0]
+        base_learning_rate = config.base_lr
+        num_epochs = config.train_epochs
+        warmup_epochs = config.warmup_epochs
         warmup_fn = optax.linear_schedule(
             init_value=0., end_value=base_learning_rate,
             transition_steps=warmup_epochs * steps_per_epoch)
@@ -54,6 +66,7 @@ class ResNetExperiment:
             schedules=[warmup_fn, cosine_fn],
             boundaries=[warmup_epochs * steps_per_epoch])
         self.lr_fun = schedule_fn
+
         tx = optax.adam(learning_rate=schedule_fn)
         self.state = ResNetExperiment.TrainState.create(
             apply_fn=model.apply,
@@ -62,6 +75,7 @@ class ResNetExperiment:
             batch_stats=batch_stats,
             augment_key=jax.random.PRNGKey(42)
         )
+
         self.model_loss = lambda pred, label: ((pred - label) ** 2).mean()
 
         if not debug:
@@ -78,11 +92,10 @@ class ResNetExperiment:
             loss = self.model_loss(pred, batch.label)
 
             weight_penalty_params = jax.tree_leaves(params)
-            weight_decay = 5e-3
             weight_l2 = sum([jnp.sum(x ** 2)
                              for x in weight_penalty_params
                              if x.ndim > 1])
-            weight_penalty = weight_decay * 0.5 * weight_l2
+            weight_penalty = self.config.weight_decay * 0.5 * weight_l2
             loss = loss + weight_penalty
 
             return loss, (new_model_state, pred, weight_penalty)
@@ -152,7 +165,7 @@ class ResNetExperiment:
         checkpoints.save_checkpoint(self.workdir, self.state, step, keep=3, overwrite=True)
 
     def train_epochs(self, epochs: int):
-
+        writer = metric_writers.create_default_writer(self.workdir)
         for epoch in range(epochs):
             train_metrics = []
             eval_metrics = []
@@ -183,9 +196,13 @@ class ResNetExperiment:
                 f"eval_{k}": v
                 for k, v in jax.tree_multimap(lambda *x: jnp.array(x).mean(), *eval_metrics).items()
             }
+            epoch_time = time.time() - epoch_start
+            writer.write_scalars(self.state.step, {"epoch time": epoch_time})
+            writer.write_scalars(self.state.step, train_summary)
+            writer.write_scalars(self.state.step, eval_summary)
 
             if epoch % self.print_every_epoch == 0:
-                print(f"Epoch {epoch}, took: {time.time() - epoch_start}")
+                print(f"Epoch {epoch}, took: {epoch_time}")
                 print(f"LR: {self.lr_fun(self.state.step)}")
                 print(f"train metrics: \n \t {train_summary}")
                 print(f"eval metrics: \n \t {eval_summary}")
@@ -208,21 +225,35 @@ def main():
 
     split = train_test_split(sample_count(), 0.3)
     pipeline = get_data_pipeline(split, batch_size=64, preprocess_img=preprocess_img)
-    experiment = ResNetExperiment(pipeline, False)
-    experiment.train_epochs(500)
-
     test_data = get_test_data(preprocess_fn=preprocess_img, mean=pipeline.images.mean, var=pipeline.images.std_var)
-    test_preds = experiment.predict(test_data)
-
-    # denormalize
-    denorm_test_preds = (test_preds * pipeline.labels.std_dev) + pipeline.labels.mean
-    pd.DataFrame(denorm_test_preds).to_csv("workdir/test_pred.csv")
-
-    # also pred training data as test
     train_data = get_train_data(preprocess_fn=preprocess_img, mean=pipeline.images.mean, var=pipeline.images.std_var)
-    train_preds = experiment.predict(train_data)
-    denorm_train_preds = (train_preds * pipeline.labels.std_dev) + pipeline.labels.mean
-    pd.DataFrame(denorm_train_preds).to_csv("workdir/train_pred.csv")
+
+    for learning_rate in [0.01, 0.05, 0.1]:
+        for dropout_rate in [0.0, 0.1, 0.2]:
+            for weight_decay in [1e-2, 3e-3, 1e-3]:
+                config = ExperimentConfig(
+                    dropout_rate=dropout_rate,
+                    weight_decay=weight_decay,
+                    train_epochs=500,
+                    warmup_epochs=10,
+                    base_lr=learning_rate
+                )
+
+                workdir = f"workdir_lr{learning_rate}_dropout{dropout_rate}_decay{weight_decay}"
+
+                experiment = ResNetExperiment(config, pipeline, workdir)
+                experiment.train_epochs(config.train_epochs)
+
+                test_preds = experiment.predict(test_data)
+
+                # denormalize
+                denorm_test_preds = (test_preds * pipeline.labels.std_dev) + pipeline.labels.mean
+                pd.DataFrame(denorm_test_preds).to_csv(f"{workdir}/test_pred.csv")
+
+                # also pred training data as test
+                train_preds = experiment.predict(train_data)
+                denorm_train_preds = (train_preds * pipeline.labels.std_dev) + pipeline.labels.mean
+                pd.DataFrame(denorm_train_preds).to_csv(f"{workdir}/train_pred.csv")
 
 
 if __name__ == '__main__':

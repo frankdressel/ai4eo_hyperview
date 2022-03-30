@@ -1,6 +1,7 @@
 from functools import partial
 from typing import Any, Callable, Sequence, Tuple
 
+import jax.nn
 import jax.numpy as jnp
 from flax import linen as nn
 
@@ -65,6 +66,7 @@ class ResNet(nn.Module):
     stage_sizes: Sequence[int]
     block_cls: ModuleDef
     num_classes: int
+    dropout_rate: float
     num_filters: int = 64
     dtype: Any = jnp.float32
     act: Callable = nn.relu
@@ -93,8 +95,11 @@ class ResNet(nn.Module):
                                    conv=conv,
                                    norm=norm,
                                    act=self.act)(x)
-                x = nn.Dropout(rate=0.2, deterministic=not train)(x)
+
         x = jnp.mean(x, axis=(1, 2))
+        x = nn.Dense(256, dtype=self.dtype)(x)
+        x = jax.nn.relu(x)
+        x = nn.Dropout(rate=self.dropout_rate, deterministic=not train)(x)
         x = nn.Dense(self.num_classes, dtype=self.dtype)(x)
         x = jnp.asarray(x, self.dtype)
         return x
