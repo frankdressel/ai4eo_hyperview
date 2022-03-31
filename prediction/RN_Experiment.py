@@ -153,12 +153,13 @@ class ResNetExperiment:
         return [offset_h, offset_w, h, w]
 
     def augment(self, image: jnp.ndarray, key: jax.random.PRNGKey) -> jnp.ndarray:
-        crop_key, flip_key = jax.random.split(key)
+        crop_key, flip_key, rot_key = jax.random.split(key, 3)
         offset_h, offset_w, h, w = self._get_random_crop(image.shape, crop_key)
         image = image[offset_h:offset_h + h, offset_w:offset_w + w]
         resized = jax.image.resize(image, self.input_shape, jax.image.ResizeMethod.LINEAR)
         flipped = jnp.where(jax.random.uniform(flip_key, ()) > 0.5, jnp.fliplr(resized), resized)
-        return flipped
+        rotated = jnp.rot90(flipped, jax.random.randint(rot_key, (), 0, 3))
+        return rotated
 
     def save_checkpoint(self):
         step = int(self.state.step)
