@@ -158,7 +158,7 @@ class ResNetExperiment:
         image = image[offset_h:offset_h + h, offset_w:offset_w + w]
         resized = jax.image.resize(image, self.input_shape, jax.image.ResizeMethod.LINEAR)
         flipped = jnp.where(jax.random.uniform(flip_key, ()) > 0.5, jnp.fliplr(resized), resized)
-        rotated = jnp.rot90(flipped, jax.random.randint(rot_key, (), 0, 3))
+        rotated = jnp.rot90(flipped, int(jax.random.randint(rot_key, (), 0, 3)))
         return rotated
 
     def save_checkpoint(self):
