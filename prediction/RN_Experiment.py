@@ -12,7 +12,7 @@ from flax.training import checkpoints
 from flax.training import train_state
 from skimage.transform import resize
 
-from prediction.ResNetModel import ResNet50
+from prediction.ResNetModel import ResNet50, ResNet18
 from preprocessing.pipeline import Pipeline, Batch, get_data_pipeline, train_test_split, sample_count, get_test_data, \
     get_train_data
 
@@ -42,7 +42,7 @@ class ResNetExperiment:
         self.input_shape = pipeline.input_shape
         self.debug = debug
 
-        model = ResNet50(num_classes=4, dropout_rate=config.dropout_rate)
+        model = ResNet18(num_classes=4, dropout_rate=config.dropout_rate)
 
         init_key, dropout_key = jax.random.split(jax.random.PRNGKey(0))
 
@@ -126,7 +126,7 @@ class ResNetExperiment:
         # crop some random area with a similar aspect ratio
         area = (image_shape[1] * image_shape[0])
         area_key, key = jax.random.split(key)
-        target_area = jax.random.uniform(area_key, [], minval=0.33, maxval=1.0) * area
+        target_area = jax.random.uniform(area_key, [], minval=0.6, maxval=1.0) * area
         aspect_ratio_key, key = jax.random.split(key)
         aspect_ratio = jnp.exp(
             jax.random.uniform(aspect_ratio_key, [], minval=jnp.log(3 / 4), maxval=jnp.log(4 / 3)))
@@ -234,12 +234,12 @@ def main():
                 config = ExperimentConfig(
                     dropout_rate=dropout_rate,
                     weight_decay=weight_decay,
-                    train_epochs=500,
+                    train_epochs=2000,
                     warmup_epochs=10,
                     base_lr=learning_rate
                 )
 
-                workdir = f"workdir_lr{learning_rate}_dropout{dropout_rate}_decay{weight_decay}"
+                workdir = f"experiments/workdir_lr{learning_rate}_dropout{dropout_rate}_decay{weight_decay}"
 
                 experiment = ResNetExperiment(config, pipeline, workdir)
                 experiment.train_epochs(config.train_epochs)
