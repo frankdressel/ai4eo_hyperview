@@ -19,7 +19,6 @@ from preprocessing.pipeline import Pipeline, Batch, get_data_pipeline, train_tes
 
 @struct.dataclass
 class ExperimentConfig:
-    dropout_rate: float
     weight_decay: float
     train_epochs: int
     warmup_epochs: int
@@ -42,11 +41,11 @@ class ResNetExperiment:
         self.input_shape = pipeline.input_shape
         self.debug = debug
 
-        model = ResNet18(num_classes=4, dropout_rate=config.dropout_rate)
+        model = ResNet18(num_classes=4)
 
-        init_key, dropout_key = jax.random.split(jax.random.PRNGKey(0))
+        init_key = jax.random.PRNGKey(0)
 
-        variables = model.init({"params": init_key, "dropout": dropout_key}, jnp.ones(self.input_shape))
+        variables = model.init({"params": init_key}, jnp.ones(self.input_shape))
         params = variables["params"]
         batch_stats = variables["batch_stats"]
 
@@ -83,12 +82,12 @@ class ResNetExperiment:
             self.eval_step = jax.jit(self.eval_step)
             self.metrics = jax.jit(self.metrics)
 
-    def train_step(self, state: TrainState, batch: Batch, dropout_rng: jax.random.PRNGKey):
+    def train_step(self, state: TrainState, batch: Batch):
         def loss_fn(params):
             pred, new_model_state = state.apply_fn(
                 {'params': params, 'batch_stats': state.batch_stats},
                 batch.image, mutable=['batch_stats'],
-                rngs={'dropout': dropout_rng})
+                )
             loss = self.model_loss(pred, batch.label)
 
             weight_penalty_params = jax.tree_leaves(params)
@@ -173,11 +172,11 @@ class ResNetExperiment:
             epoch_start = time.time()
 
             for batch in self.pipeline.train_generator():
-                augment_key, dropout_key, state_key = jax.random.split(self.state.augment_key, 3)
+                augment_key, state_key = jax.random.split(self.state.augment_key, 2)
                 self.state.replace(augment_key=state_key)
                 augmented = self.augment(batch.image, augment_key)
                 augmented_batch = Batch(augmented, batch.label)
-                state, loss, predictions, weight_penalty = self.train_step(self.state, augmented_batch, dropout_key)
+                state, loss, predictions, weight_penalty = self.train_step(self.state, augmented_batch)
                 metrics = self.metrics(predictions, batch.label)
                 metrics["weight_penalty"] = weight_penalty
                 train_metrics.append(metrics)
@@ -229,32 +228,30 @@ def main():
     test_data = get_test_data(preprocess_fn=preprocess_img, mean=pipeline.images.mean, var=pipeline.images.std_var)
     train_data = get_train_data(preprocess_fn=preprocess_img, mean=pipeline.images.mean, var=pipeline.images.std_var)
 
-    for learning_rate in [0.01, 0.05, 0.1]:
-        for dropout_rate in [0.0, 0.1, 0.2]:
-            for weight_decay in [1e-2, 3e-3, 1e-3]:
-                config = ExperimentConfig(
-                    dropout_rate=dropout_rate,
-                    weight_decay=weight_decay,
-                    train_epochs=2000,
-                    warmup_epochs=10,
-                    base_lr=learning_rate
-                )
+    for learning_rate in [3e-3, 0.01, 0.03, 0.1, 0.3]:
+        for weight_decay in [1e-1, 1e-2, 1e-3, 1e-4]:
+            config = ExperimentConfig(
+                weight_decay=weight_decay,
+                train_epochs=2000,
+                warmup_epochs=10,
+                base_lr=learning_rate
+            )
 
-                workdir = f"experiments/workdir_lr{learning_rate}_dropout{dropout_rate}_decay{weight_decay}"
+            workdir = f"experiments/workdir_lr{learning_rate}_dropout{dropout_rate}_decay{weight_decay}"
 
-                experiment = ResNetExperiment(config, pipeline, workdir)
-                experiment.train_epochs(config.train_epochs)
+            experiment = ResNetExperiment(config, pipeline, workdir)
+            experiment.train_epochs(config.train_epochs)
 
-                test_preds = experiment.predict(test_data)
+            test_preds = experiment.predict(test_data)
 
-                # denormalize
-                denorm_test_preds = (test_preds * pipeline.labels.std_dev) + pipeline.labels.mean
-                pd.DataFrame(denorm_test_preds).to_csv(f"{workdir}/test_pred.csv")
+            # denormalize
+            denorm_test_preds = (test_preds * pipeline.labels.std_dev) + pipeline.labels.mean
+            pd.DataFrame(denorm_test_preds).to_csv(f"{workdir}/test_pred.csv")
 
-                # also pred training data as test
-                train_preds = experiment.predict(train_data)
-                denorm_train_preds = (train_preds * pipeline.labels.std_dev) + pipeline.labels.mean
-                pd.DataFrame(denorm_train_preds).to_csv(f"{workdir}/train_pred.csv")
+            # also pred training data as test
+            train_preds = experiment.predict(train_data)
+            denorm_train_preds = (train_preds * pipeline.labels.std_dev) + pipeline.labels.mean
+            pd.DataFrame(denorm_train_preds).to_csv(f"{workdir}/train_pred.csv")
 
 
 if __name__ == '__main__':
