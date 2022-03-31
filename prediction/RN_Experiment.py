@@ -237,7 +237,7 @@ def main():
                 base_lr=learning_rate
             )
 
-            workdir = f"experiments/workdir_lr{learning_rate}_dropout{dropout_rate}_decay{weight_decay}"
+            workdir = f"experiments/workdir_lr{learning_rate}_decay{weight_decay}"
 
             experiment = ResNetExperiment(config, pipeline, workdir)
             experiment.train_epochs(config.train_epochs)
