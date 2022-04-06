@@ -153,10 +153,10 @@ class ResNetExperiment:
 
     def augment(self, image: jnp.ndarray, key: jax.random.PRNGKey) -> jnp.ndarray:
         crop_key, flip_key, rot_key = jax.random.split(key, 3)
-        offset_h, offset_w, h, w = self._get_random_crop(image.shape, crop_key)
-        image = image[offset_h:offset_h + h, offset_w:offset_w + w]
-        resized = jax.image.resize(image, self.input_shape, jax.image.ResizeMethod.LINEAR)
-        flipped = jnp.where(jax.random.uniform(flip_key, ()) > 0.5, jnp.fliplr(resized), resized)
+        # offset_h, offset_w, h, w = self._get_random_crop(image.shape, crop_key)
+        # image = image[offset_h:offset_h + h, offset_w:offset_w + w]
+        # resized = jax.image.resize(image, self.input_shape, jax.image.ResizeMethod.LINEAR)
+        flipped = jnp.where(jax.random.uniform(flip_key, ()) > 0.5, jnp.fliplr(image), image)
         rotated = jnp.rot90(flipped, int(jax.random.randint(rot_key, (), 0, 3)))
         return rotated
 
