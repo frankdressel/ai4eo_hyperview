@@ -52,6 +52,27 @@ class MergeData(MTimeMixin, luigi.Task):
         average = arr.data.sum() / len(arr[0]) / len(arr[0, 0])
         for i in range(len(arr)):
             means.append(arr[i].data.mean() / average)
+#        vecs = []
+#        #ndvi = []
+#        weights = []
+#        s = 0
+#
+#        for i in range(len(arr[0])):
+#           for j in range(len(arr[0, 0])):
+#               # 106, 50
+#               nir = arr.data[87, i, j]
+#               vis = arr.data[57, i, j]
+#                ndvi.append((nir - vis) / (nir + vis))
+#               vecs.append(arr.data[:, i, j])
+#               weights.append((nir - vis) / (nir + vis))
+#
+#        means = numpy.average(vecs, axis=0, weights=weights) / average
+#        mn = numpy.max(ndvi)
+#        vecsa = numpy.array([v for n, v in zip(ndvi, vecs) if n > min(0.2, 0.75*mn)])
+#        means = vecsa.mean(axis=0) / (vecsa.sum() / len(vecsa))
+
+        #for i in range(len(arr)):
+        #    means.append(numpy.ma.average(arr[i].data, weights=) / average)
 
         ddmeans = savgol_filter(means, 5, polyorder=3, deriv=2)
         dmeans = savgol_filter(means, 5, polyorder=3, deriv=1)
@@ -61,6 +82,8 @@ class MergeData(MTimeMixin, luigi.Task):
             data_dict[f'dmean_{i}'] = dmeans[i]
             data_dict[f'mean_{i}'] = means[i]
         data_dict['average_refl'] = average
+        data_dict['ndvi'] = (means[87] - means[57]) / (means[87] + means[57])
+        data_dict['area'] = len(arr[0]) * len(arr[0, 0])
 
         return data_dict
 
