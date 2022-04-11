@@ -41,7 +41,7 @@ class ResNetExperiment:
         self.input_shape = pipeline.input_shape
         self.debug = debug
 
-        model = ResNet18(num_classes=4)
+        model = ResNet50(num_classes=4)
 
         init_key = jax.random.PRNGKey(0)
 
@@ -228,11 +228,11 @@ def main():
     test_data = get_test_data(preprocess_fn=preprocess_img, mean=pipeline.images.mean, var=pipeline.images.std_var)
     train_data = get_train_data(preprocess_fn=preprocess_img, mean=pipeline.images.mean, var=pipeline.images.std_var)
 
-    for learning_rate in [3e-3, 0.01, 0.03, 0.1, 0.3]:
-        for weight_decay in [1e-1, 1e-2, 1e-3, 1e-4]:
+    for learning_rate in [1e-4, 1e-3, 1e-2, 0.1, 0.3]:
+        for weight_decay in [0,]:
             config = ExperimentConfig(
                 weight_decay=weight_decay,
-                train_epochs=2000,
+                train_epochs=1000,
                 warmup_epochs=10,
                 base_lr=learning_rate
             )
