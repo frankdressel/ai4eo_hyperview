@@ -96,8 +96,6 @@ class ResNet(nn.Module):
                                    act=self.act)(x)
 
         x = jnp.mean(x, axis=(1, 2))
-        x = nn.Dense(256, dtype=self.dtype)(x)
-        x = jax.nn.relu(x)
         x = nn.Dense(self.num_classes, dtype=self.dtype)(x)
         x = jnp.asarray(x, self.dtype)
         return x
