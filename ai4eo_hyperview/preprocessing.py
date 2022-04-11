@@ -10,6 +10,9 @@ from ai4eo_hyperview.utils import MTimeMixin
 from scipy.interpolate import UnivariateSpline 
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
+from scipy.signal import savgol_filter
+from sklearn.ensemble import IsolationForest
+from sklearn.preprocessing import FunctionTransformer
 
 class MergeData(MTimeMixin, luigi.Task):
     def output(self):
@@ -19,14 +22,21 @@ class MergeData(MTimeMixin, luigi.Task):
         }
 
     @staticmethod
-    def _normalize(arr):
-        result = arr.copy()
-        sum = 0
-        for i in range(len(result)):
-            sum = sum + result[i].mean()
-        result = result / sum
-
-        return result
+    def transf(df):
+        s = df.filter(regex='^ddmean.*').sum().values
+        ind = []
+        for i in range(1, len(s)):
+            if s[i] == 0 or (s[i-1] > 0 and s[i] < 0) or (s[i-1] < 0 and s[i] > 0):
+                ind.append(i)
+        res = df.copy()
+        for i in ind:
+            for j in ind:
+                if i != j:
+                    res[f'{i}/{j}'] = res[f'mean_{i}']/res[f'mean_{j}']
+                    #for k in ind:
+                    #    if k != i and k != j:
+                    #        res[f'{i}/{j}+{k}'] = res[f'mean_{i}']/(res[f'mean_{j}'] + res[f'mean_{k}'])
+        return res
 
     @staticmethod
     def _prepare_arr(arr, sample_name):
@@ -34,18 +44,46 @@ class MergeData(MTimeMixin, luigi.Task):
 
         data_dict['sample'] = sample_name
         data_dict['size_x'] = len(arr[0])
-        data_dict['size_y'] = len(arr[0][0])
+        data_dict['size_y'] = len(arr[0, 0])
         
         means = []
+
+        #average = arr.sum() / arr.mask[0].sum()
+        average = arr.data.sum() / len(arr[0]) / len(arr[0, 0])
         for i in range(len(arr)):
-            means.append(arr[i].mean() / (arr.sum() / arr.mask[0].sum()))
-        smeans = means
-        for i in range(len(smeans)):
-            data_dict[f'mean_{i}'] = smeans[i]
-        for i in range(len(smeans)):
-            if i > 0:
-                data_dict[f'd{i}'] = smeans[i] - smeans[i - 1]
-        data_dict['average_refl'] = arr.sum() / arr.mask[0].sum()
+            means.append(arr[i].data.mean() / average)
+#        vecs = []
+#        #ndvi = []
+#        weights = []
+#        s = 0
+#
+#        for i in range(len(arr[0])):
+#           for j in range(len(arr[0, 0])):
+#               # 106, 50
+#               nir = arr.data[87, i, j]
+#               vis = arr.data[57, i, j]
+#                ndvi.append((nir - vis) / (nir + vis))
+#               vecs.append(arr.data[:, i, j])
+#               weights.append((nir - vis) / (nir + vis))
+#
+#        means = numpy.average(vecs, axis=0, weights=weights) / average
+#        mn = numpy.max(ndvi)
+#        vecsa = numpy.array([v for n, v in zip(ndvi, vecs) if n > min(0.2, 0.75*mn)])
+#        means = vecsa.mean(axis=0) / (vecsa.sum() / len(vecsa))
+
+        #for i in range(len(arr)):
+        #    means.append(numpy.ma.average(arr[i].data, weights=) / average)
+
+        ddmeans = savgol_filter(means, 5, polyorder=3, deriv=2)
+        dmeans = savgol_filter(means, 5, polyorder=3, deriv=1)
+
+        for i in range(len(ddmeans)):
+            data_dict[f'ddmean_{i}'] = ddmeans[i]
+            data_dict[f'dmean_{i}'] = dmeans[i]
+            data_dict[f'mean_{i}'] = means[i]
+        data_dict['average_refl'] = average
+        data_dict['ndvi'] = (means[87] - means[57]) / (means[87] + means[57])
+        data_dict['area'] = len(arr[0]) * len(arr[0, 0])
 
         return data_dict
 
@@ -58,6 +96,7 @@ class MergeData(MTimeMixin, luigi.Task):
         for tf in train_files:
             with numpy.load(tf) as npz:
                 arr = numpy.ma.MaskedArray(**npz)
+
                 sample_name = tf.name.replace('.npz', '')
                 data_dict = MergeData._prepare_arr(arr, sample_name)
 
@@ -70,6 +109,9 @@ class MergeData(MTimeMixin, luigi.Task):
                 _data.append(data_dict)
         data = pandas.DataFrame.from_dict(_data)
         data = data.apply(pandas.to_numeric, errors='ignore')
+
+        ft = FunctionTransformer(func=MergeData.transf)
+        data = ft.fit_transform(data)
 
         with self.output()['merged'].open('w') as f:
             data.to_csv(f, index=False)
@@ -87,6 +129,8 @@ class MergeData(MTimeMixin, luigi.Task):
                 _data.append(data_dict)
         data = pandas.DataFrame.from_dict(_data)
         data = data.apply(pandas.to_numeric, errors='ignore')
+
+        data = ft.fit_transform(data)
 
         with self.output()['challenge'].open('w') as f:
             data.to_csv(f, index=False)

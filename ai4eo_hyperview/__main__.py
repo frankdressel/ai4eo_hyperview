@@ -1,6 +1,6 @@
 import luigi
 
-from ai4eo_hyperview.prediction import RandomForest
+from ai4eo_hyperview.submission import Submission
 
 if __name__=='__main__':
-    luigi.build([RandomForest()], local_scheduler=True)
+    luigi.build([Submission()], local_scheduler=True)
