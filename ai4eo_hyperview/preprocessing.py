@@ -8,11 +8,13 @@ import tempfile
 
 from ai4eo_hyperview.utils import MTimeMixin
 from scipy.interpolate import UnivariateSpline 
+from scipy.optimize import curve_fit
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
 from scipy.signal import savgol_filter
 from sklearn.ensemble import IsolationForest
 from sklearn.preprocessing import FunctionTransformer
+from sklearn.metrics import mean_squared_error
 
 class MergeData(MTimeMixin, luigi.Task):
     def output(self):
@@ -20,6 +22,14 @@ class MergeData(MTimeMixin, luigi.Task):
                 'merged': luigi.LocalTarget('data/merged.csv'),
                 'challenge': luigi.LocalTarget('data/challenge.csv'),
         }
+
+    @staticmethod
+    def sig(x, a, b, c, d):
+        return a + b / (1 + numpy.exp(-c * (x - d)))
+
+    @staticmethod
+    def lin(x, a, b):
+        return a + b * x
 
     @staticmethod
     def transf(df):
@@ -33,49 +43,42 @@ class MergeData(MTimeMixin, luigi.Task):
             for j in ind:
                 if i != j:
                     res[f'{i}/{j}'] = res[f'mean_{i}']/res[f'mean_{j}']
-                    #for k in ind:
-                    #    if k != i and k != j:
-                    #        res[f'{i}/{j}+{k}'] = res[f'mean_{i}']/(res[f'mean_{j}'] + res[f'mean_{k}'])
         return res
 
     @staticmethod
-    def _prepare_arr(arr, sample_name):
+    def _prepare_arr(arr, wave, sample_name):
         data_dict = {}
 
         data_dict['sample'] = sample_name
         data_dict['size_x'] = len(arr[0])
         data_dict['size_y'] = len(arr[0, 0])
         
-        means = []
+        means = [numpy.ma.mean(arr[i,:,:]) for i in range(arr.shape[0])]
+        popt_s, pcov_s = curve_fit(MergeData.sig, wave['wavelength'], means, bounds=([200, 500, 0.05, 500], [1000, 5000, 5, 900]))
+        popt_l, pcov_l = curve_fit(MergeData.lin, wave['wavelength'], means)
+        mse_s = mean_squared_error(MergeData.sig(wave["wavelength"], *popt_s), means)
+        mse_l = mean_squared_error(MergeData.lin(wave["wavelength"], *popt_l), means)
+        if mse_s < mse_l:
+            data_dict['sig'] = 1
+            data_dict['lin'] = 0
+            #for i in range(len(means)):
+            #    f = MergeData.sig(wave['wavelength'], *popt_s)
+            #    means[i] = means[i] / f[i]
+        else:
+            data_dict['sig'] = 0
+            data_dict['lin'] = 1
+            #for i in range(len(means)):
+            #    f = MergeData.lin(wave['wavelength'], *popt_l)
+            #    means[i] = means[i] / f[i]
 
-        #average = arr.sum() / arr.mask[0].sum()
         average = arr.data.sum() / len(arr[0]) / len(arr[0, 0])
-        for i in range(len(arr)):
-            means.append(arr[i].data.mean() / average)
-#        vecs = []
-#        #ndvi = []
-#        weights = []
-#        s = 0
-#
-#        for i in range(len(arr[0])):
-#           for j in range(len(arr[0, 0])):
-#               # 106, 50
-#               nir = arr.data[87, i, j]
-#               vis = arr.data[57, i, j]
-#                ndvi.append((nir - vis) / (nir + vis))
-#               vecs.append(arr.data[:, i, j])
-#               weights.append((nir - vis) / (nir + vis))
-#
-#        means = numpy.average(vecs, axis=0, weights=weights) / average
-#        mn = numpy.max(ndvi)
-#        vecsa = numpy.array([v for n, v in zip(ndvi, vecs) if n > min(0.2, 0.75*mn)])
-#        means = vecsa.mean(axis=0) / (vecsa.sum() / len(vecsa))
-
-        #for i in range(len(arr)):
-        #    means.append(numpy.ma.average(arr[i].data, weights=) / average)
 
         ddmeans = savgol_filter(means, 5, polyorder=3, deriv=2)
         dmeans = savgol_filter(means, 5, polyorder=3, deriv=1)
+
+        l = 31
+        p = 6
+        means = [numpy.ma.mean(arr[i,:,:]) for i in range(arr.shape[0])] - savgol_filter([numpy.ma.mean(arr[i,:,:]) for i in range(arr.shape[0])], l, p)
 
         for i in range(len(ddmeans)):
             data_dict[f'ddmean_{i}'] = ddmeans[i]
@@ -90,6 +93,7 @@ class MergeData(MTimeMixin, luigi.Task):
     def run(self):
         # train data
         gt = pandas.read_csv('train_data/train_gt.csv', converters={'sample_index': str})
+        wave = pandas.read_csv('train_data/wavelengths.csv')
         _data = []
 
         train_files = pathlib.Path('train_data/train_data').glob('*.npz')
@@ -98,7 +102,7 @@ class MergeData(MTimeMixin, luigi.Task):
                 arr = numpy.ma.MaskedArray(**npz)
 
                 sample_name = tf.name.replace('.npz', '')
-                data_dict = MergeData._prepare_arr(arr, sample_name)
+                data_dict = MergeData._prepare_arr(arr, wave, sample_name)
 
                 gt_values = gt[gt['sample_index'] == sample_name]
                 data_dict['P'] = gt_values['P'].values[0]
@@ -110,8 +114,8 @@ class MergeData(MTimeMixin, luigi.Task):
         data = pandas.DataFrame.from_dict(_data)
         data = data.apply(pandas.to_numeric, errors='ignore')
 
-        ft = FunctionTransformer(func=MergeData.transf)
-        data = ft.fit_transform(data)
+        #ft = FunctionTransformer(func=MergeData.transf)
+        #data = ft.fit_transform(data)
 
         with self.output()['merged'].open('w') as f:
             data.to_csv(f, index=False)
@@ -124,44 +128,13 @@ class MergeData(MTimeMixin, luigi.Task):
             with numpy.load(tf) as npz:
                 arr = numpy.ma.MaskedArray(**npz)
                 sample_name = tf.name.replace('.npz', '')
-                data_dict = MergeData._prepare_arr(arr, sample_name)
+                data_dict = MergeData._prepare_arr(arr, wave, sample_name)
 
                 _data.append(data_dict)
         data = pandas.DataFrame.from_dict(_data)
         data = data.apply(pandas.to_numeric, errors='ignore')
 
-        data = ft.fit_transform(data)
+        #data = ft.fit_transform(data)
 
         with self.output()['challenge'].open('w') as f:
             data.to_csv(f, index=False)
-
-class Split(MTimeMixin, luigi.Task):
-    def requires(self):
-        return {'Merge': MergeData()}
-
-    def output(self):
-        return {
-                'train_x': luigi.LocalTarget('data/train_x.csv'),
-                'train_y': luigi.LocalTarget('data/train_y.csv'),
-                'test_x': luigi.LocalTarget('data/test_x.csv'),
-                'test_y': luigi.LocalTarget('data/test_y.csv'),
-        }
-
-    def run(self):
-        with self.input()['Merge']['merged'].open('r') as f:
-            df = pandas.read_csv(f)
-
-        train, test = train_test_split(df)
-        train_x = train.drop(labels=['P', 'K', 'Mg','pH'], axis=1)
-        train_y = train[['P', 'K', 'Mg','pH', 'sample']]
-        test_x = test.drop(labels=['P', 'K', 'Mg','pH'], axis=1)
-        test_y = test[['P', 'K', 'Mg','pH', 'sample']]
-
-        with self.output()['train_x'].open('w') as f:
-            train_x.to_csv(f, index=False)
-        with self.output()['train_y'].open('w') as f:
-            train_y.to_csv(f, index=False)
-        with self.output()['test_x'].open('w') as f:
-            test_x.to_csv(f, index=False)
-        with self.output()['test_y'].open('w') as f:
-            test_y.to_csv(f, index=False)

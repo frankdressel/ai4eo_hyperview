@@ -7,11 +7,11 @@ from sklearn.model_selection import GridSearchCV
 from sklearn.metrics import make_scorer
 
 from ai4eo_hyperview.utils import MTimeMixin, mse
-from ai4eo_hyperview.preprocessing import MergeData, Split
+from ai4eo_hyperview.preprocessing import MergeData
 
 class RandomForest(MTimeMixin, luigi.Task):
     def requires(self):
-        return {'Merge': MergeData(), 'Split': Split()}
+        return {'Merge': MergeData()}
 
     def output(self):
         return {
@@ -24,17 +24,11 @@ class RandomForest(MTimeMixin, luigi.Task):
         }
 
     def run(self):
-        with self.input()['Split']['train_x'].open('r') as f:
-            train_x = pandas.read_csv(f).drop(['sample', 'size_x', 'size_y'], axis=1)
-        with self.input()['Split']['train_y'].open('r') as f:
-            train_y = pandas.read_csv(f).drop(columns=['sample'])
-        with self.input()['Split']['test_x'].open('r') as f:
-            test_x = pandas.read_csv(f).drop(['sample', 'size_x', 'size_y'], axis=1)
-        with self.input()['Split']['test_y'].open('r') as f:
-            test_y = pandas.read_csv(f).drop(columns=['sample'])
 
-        tot_x = pandas.concat([train_x, test_x])
-        tot_y = pandas.concat([train_y, test_y])
+        with self.input()['Merge']['merged'].open('r') as f:
+            tot_x = pandas.read_csv(f).drop(['sample', 'size_x', 'size_y', 'P', 'K', 'Mg', 'pH'], axis=1)
+        with self.input()['Merge']['merged'].open('r') as f:
+            tot_y = pandas.read_csv(f).filter(regex='P|K|Mg|pH')
 
         paras = {
                 'max_features': ['auto'],
@@ -48,19 +42,3 @@ class RandomForest(MTimeMixin, luigi.Task):
         gs.fit(tot_x, tot_y)
         with self.output()['randomforest'].open('wb') as f:
             joblib.dump(gs, f)
-
-#        regr = RandomForestClassifier(n_estimators=500)
-#        gs = GridSearchCV(regr, paras, n_jobs=8)
-#        tot_y['pH'] = tot_y['pH'].astype('str')
-#        gs.fit(tot_x, tot_y['pH'])
-#        with self.output()['randomforest_ph'].open('wb') as f:
-#            joblib.dump(gs, f)
-
-#        labels = ['P', 'K', 'Mg', 'pH']
-#        for l in labels:
-#            regr = GradientBoostingRegressor(n_estimators=100)
-#            gs = GridSearchCV(regr, paras, n_jobs=4)
-#            gs.fit(tot_x, tot_y[l])
-#
-#            with self.output()[f'gradient_{l}'].open('wb') as f:
-#                joblib.dump(gs, f)
