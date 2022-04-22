@@ -151,8 +151,9 @@ def get_data(path: Path, preprocess_fn: Callable, mean: np.ndarray, var: np.ndar
 
     # Load all images to memory, dataset is small enough to not worry about it
     # Channels last format (transpose)
-    img_data: list[np.ndarray] = [np.ma.MaskedArray(**np.load(str(image))).data.transpose((1, 2, 0)) for image in
+    masked_data: list[np.ndarray] = [np.ma.MaskedArray(**np.load(str(image))) for image in
                                   images]
+    img_data: list[np.ndarray] = [(masked.data * masked.mask).transpose((1,2,0)) for masked in masked_data]
 
     processed_test = []
     # normalize and preprocess to single size
