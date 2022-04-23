@@ -47,6 +47,9 @@ class MergeData(MTimeMixin, luigi.Task):
 
     @staticmethod
     def _prepare_arr(arr, wave, sample_name):
+        l = 31
+        p = 6
+
         data_dict = {}
 
         data_dict['sample'] = sample_name
@@ -76,14 +79,26 @@ class MergeData(MTimeMixin, luigi.Task):
         ddmeans = savgol_filter(means, 5, polyorder=3, deriv=2)
         dmeans = savgol_filter(means, 5, polyorder=3, deriv=1)
 
-        l = 31
-        p = 6
-        means = [numpy.ma.mean(arr[i,:,:]) for i in range(arr.shape[0])] - savgol_filter([numpy.ma.mean(arr[i,:,:]) for i in range(arr.shape[0])], l, p)
+        #means = [numpy.ma.mean(arr[i,:,:]) for i in range(arr.shape[0])] - savgol_filter([numpy.ma.mean(arr[i,:,:]) for i in range(arr.shape[0])], l, p)
+        #divmeans = [numpy.ma.mean(arr[i,:,:]) for i in range(arr.shape[0])] / savgol_filter([numpy.ma.mean(arr[i,:,:]) for i in range(arr.shape[0])], l, p)
+
+        _width = 5
+        _average_mean = []
+        for i in range(0, arr.shape[1] - _width):
+            for j in range(0, arr.shape[2] - _width):
+                _sub = arr[:, i:i + _width, j:j + _width]
+                if _sub.mask[0].sum() == 0:
+                    _means = [numpy.ma.mean(_sub[i,:,:]) for i in range(_sub.shape[0])]
+                    _means = _means - savgol_filter(_means, l, p)
+                    _average_mean.append(_means)
+
+        means = numpy.mean(_average_mean, axis=0)
 
         for i in range(len(ddmeans)):
             data_dict[f'ddmean_{i}'] = ddmeans[i]
             data_dict[f'dmean_{i}'] = dmeans[i]
             data_dict[f'mean_{i}'] = means[i]
+            #data_dict[f'divmean_{i}'] = divmeans[i]
         data_dict['average_refl'] = average
         data_dict['ndvi'] = (means[87] - means[57]) / (means[87] + means[57])
         data_dict['area'] = len(arr[0]) * len(arr[0, 0])

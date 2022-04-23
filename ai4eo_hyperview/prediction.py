@@ -35,7 +35,7 @@ class RandomForest(MTimeMixin, luigi.Task):
                 #'max_features': ['auto', 'sqrt', 'log2'],
                 #'max_depth': [None, 5, 10, 20, 30],
                 #'min_weight_fraction_leaf': [0, 0.5],
-                #'ccp_alpha': [0, 0.5]
+                'ccp_alpha': [0, 0.01]
         }
         regr = RandomForestRegressor(n_estimators=500)
         gs = GridSearchCV(regr, paras, n_jobs=4)
