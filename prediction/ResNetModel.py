@@ -1,5 +1,5 @@
 from functools import partial
-from typing import Any, Callable, Sequence, Tuple
+from typing import Any, Callable, Sequence, Tuple, Optional
 
 import jax.nn
 import jax.numpy as jnp
@@ -65,19 +65,23 @@ class ResNet(nn.Module):
     """ResNetV1."""
     stage_sizes: Sequence[int]
     block_cls: ModuleDef
-    num_classes: int
+    num_classes: Optional[int]
     num_filters: int = 64
+    block_strides: Sequence[int] = (1, 2, 2, 2)
+    dilation_rates: Sequence[int] = (1, 1, 1, 1)
     dtype: Any = jnp.float32
     act: Callable = nn.relu
-    conv: ModuleDef = nn.Conv
+    return_high_level_features: bool = False
+    axis_name: str = "batch"
 
     @nn.compact
     def __call__(self, x, train: bool = True):
-        conv = partial(self.conv, use_bias=False, dtype=self.dtype)
+        conv = partial(nn.Conv, use_bias=False, dtype=self.dtype)
         norm = partial(nn.BatchNorm,
                        use_running_average=not train,
                        momentum=0.9,
                        epsilon=1e-5,
+                       axis_name=self.axis_name,
                        dtype=self.dtype)
 
         x = conv(self.num_filters, (7, 7), (2, 2),
@@ -86,19 +90,30 @@ class ResNet(nn.Module):
         x = norm(name='bn_init')(x)
         x = nn.relu(x)
         x = nn.max_pool(x, (3, 3), strides=(2, 2), padding='SAME')
+        self.sow("representations", "stem", x)
         for i, block_size in enumerate(self.stage_sizes):
             for j in range(block_size):
-                strides = (2, 2) if i > 0 and j == 0 else (1, 1)
+                strides = (self.block_strides[i], self.block_strides[i]) if i > 0 and j == 0 else (1, 1)
+                dilation = self.dilation_rates[i]
                 x = self.block_cls(self.num_filters * 2 ** i,
                                    strides=strides,
+                                   dilation_rate=(dilation, dilation),
                                    conv=conv,
                                    norm=norm,
                                    act=self.act)(x)
+            if i == 0:
+                high_level_features = x
 
-        x = jnp.mean(x, axis=(1, 2))
-        x = nn.Dense(self.num_classes, dtype=self.dtype)(x)
-        x = jnp.asarray(x, self.dtype)
-        return x
+        if self.num_classes:
+            x = jnp.mean(x, axis=(1, 2))
+            x = nn.Dense(self.num_classes, dtype=self.dtype)(x)
+            x = jnp.asarray(x, self.dtype)
+
+        if self.return_high_level_features:
+            return x, high_level_features
+        else:
+            return x
+
 
 
 ResNet18 = partial(ResNet, stage_sizes=[2, 2, 2, 2],

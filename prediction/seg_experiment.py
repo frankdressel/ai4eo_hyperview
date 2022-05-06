@@ -5,17 +5,39 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import optax
-from clu import metric_writers
 import pandas as pd
+from clu import metric_writers
+from flax import linen as nn
 from flax import struct
 from flax.training import checkpoints
 from flax.training import train_state
 from skimage.transform import resize
 
-from prediction.ResNetModel import ResNet50, ResNet18
-from prediction.MLPModel import MLPModel
+from prediction.ResNetModel import ResNet50
+from prediction.segmentation import DeepLabHead
 from preprocessing.pipeline import Pipeline, Batch, get_data_pipeline, train_test_split, sample_count, get_test_data, \
     get_train_data
+
+
+class SegmentationModel(nn.Module):
+    num_classes: int
+    backbone: Any
+    dtype: Any = jnp.float32
+    axis_name: str = "batch"
+
+    @nn.compact
+    def __call__(self, x, train: bool = True):
+        b, h, w, _ = x.shape
+        x, high_level_features = self.backbone(num_classes=None,
+                                               dilation_rates=(1, 1, 1, 2),
+                                               dtype=self.dtype,
+                                               return_high_level_features=True)(x, train=train)
+        segmentation_head = DeepLabHead(64, self.dtype, axis_name=self.axis_name)(x, high_level_features,
+                                                                                  train=train)
+        resized = jax.image.resize(segmentation_head, (b, h, w, segmentation_head.shape[-1]), "bilinear")
+        preds = nn.Conv(self.num_classes, kernel_size=(3, 3), padding="same", dtype=self.dtype)(resized)
+
+        return preds
 
 
 @struct.dataclass
@@ -42,7 +64,7 @@ class ResNetExperiment:
         self.input_shape = pipeline.input_shape
         self.debug = debug
 
-        model = ResNet50(num_classes=4)
+        model = SegmentationModel(2, ResNet50)
 
         init_key, dropout_key = jax.random.split(jax.random.PRNGKey(0), 2)
 
@@ -177,8 +199,8 @@ class ResNetExperiment:
                 augment_key, state_key, dropout_key = jax.random.split(self.state.augment_key, 3)
                 self.state.replace(augment_key=state_key)
 
-                #augmented = self.augment(batch.image, augment_key)
-                #augmented_batch = Batch(augmented, batch.label)
+                # augmented = self.augment(batch.image, augment_key)
+                # augmented_batch = Batch(augmented, batch.label)
                 state, loss, predictions, weight_penalty = self.train_step(self.state, dropout_key, batch)
                 metrics = self.metrics(predictions, batch.label)
                 metrics["weight_penalty"] = weight_penalty
@@ -232,7 +254,7 @@ def main():
     train_data = get_train_data(preprocess_fn=preprocess_img, mean=pipeline.images.mean, var=pipeline.images.std_var)
 
     for learning_rate in [1e-4, 1e-3, 1e-2, 0.1, 0.3]:
-        for weight_decay in [1e-2,]:
+        for weight_decay in [1e-2, ]:
             config = ExperimentConfig(
                 weight_decay=weight_decay,
                 train_epochs=1000,
