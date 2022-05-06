@@ -15,10 +15,15 @@ class Submission(MTimeMixin, luigi.Task):
         }
 
     def run(self):
-        with self.input()['regr']['randomforest'].open('r') as f, self.output()['submission'].open('w') as fo:
+        with self.input()['regr']['randomforest'].open('r') as f, self.input()['regr']['randomforest_bias'].open('r') as f_bias, self.output()['submission'].open('w') as fo:
             regr = joblib.load(f)
+            regr_bias = joblib.load(f_bias)
             challenge = pandas.read_csv('data/challenge.csv').sort_values('sample').drop(['sample', 'size_x', 'size_y'], axis=1)
-            submission = pandas.DataFrame(data = regr.predict(challenge), columns=["P", "K", "Mg", "pH"])
+
+            pred = pandas.DataFrame(data = regr.predict(challenge), columns=["P", "K", "Mg", "pH"])
+            e = pandas.DataFrame(data = regr_bias.predict(challenge), columns=["P", "K", "Mg", "pH"])
+
+            submission = pred + e
             submission.to_csv(fo, index_label="sample_index")
 
 #        with self.input()['regr']['gradient_P'].open('r') as fp, self.input()['regr']['gradient_K'].open('r') as fk, self.input()['regr']['gradient_Mg'].open('r') as fmg, self.input()['regr']['gradient_pH'].open('r') as fph, self.output()['submission'].open('w') as fo:
