@@ -32,7 +32,7 @@ class SegmentationModel(nn.Module):
                                                dilation_rates=(1, 1, 1, 2),
                                                dtype=self.dtype,
                                                return_high_level_features=True)(x, train=train)
-        segmentation_head = DeepLabHead(64, self.dtype, axis_name=self.axis_name)(x, high_level_features,
+        segmentation_head = DeepLabHead(64, self.dtype)(x, high_level_features,
                                                                                   train=train)
         resized = jax.image.resize(segmentation_head, (b, h, w, segmentation_head.shape[-1]), "bilinear")
         preds = nn.Conv(self.num_classes, kernel_size=(3, 3), padding="same", dtype=self.dtype)(resized)
@@ -98,7 +98,6 @@ class ResNetExperiment:
             augment_key=jax.random.PRNGKey(42)
         )
 
-        self.model_loss = lambda pred, label: ((pred - label) ** 2).mean()
 
         if not debug:
             self.train_step = jax.jit(self.train_step)
@@ -107,21 +106,22 @@ class ResNetExperiment:
 
     def train_step(self, state: TrainState, dropout_rng, batch: Batch):
         def loss_fn(params):
-            pred, new_model_state = state.apply_fn(
+            logits, new_model_state = state.apply_fn(
                 {'params': params, 'batch_stats': state.batch_stats},
                 batch.image, mutable=['batch_stats'],
                 rngs={'dropout': dropout_rng},
             )
-            loss = self.model_loss(pred, batch.label)
 
-            weight_penalty_params = jax.tree_leaves(params)
-            weight_l2 = sum([jnp.sum(x ** 2)
-                             for x in weight_penalty_params
-                             if x.ndim > 1])
-            weight_penalty = self.config.weight_decay * 0.5 * weight_l2
-            loss = loss + weight_penalty
+            one_hot_labels = jax.nn.one_hot(batch.mask, num_classes=logits.shape[-1])
+            x_ent_loss = optax.softmax_cross_entropy(logits, one_hot_labels)
+            weight_penalty_params = jax.tree_leaves(params)  # All leaves of the params tree, e.g. kernels
+            weight_l2 = sum(
+                [jnp.sum(x ** 2) for x in weight_penalty_params if
+                 x.ndim > 1])  # only consider kernels not 1D bias weights
+            weight_penalty = self.config.weight_decay * weight_l2
+            loss = x_ent_loss + weight_penalty
 
-            return loss, (new_model_state, pred, weight_penalty)
+            return loss, (new_model_state, logits, weight_penalty)
 
         grad_fn = jax.value_and_grad(loss_fn, has_aux=True)
         aux, grad = grad_fn(state.params)
@@ -135,15 +135,18 @@ class ResNetExperiment:
         predictions = state.apply_fn(
             {'params': state.params, 'batch_stats': state.batch_stats},
             batch.image, mutable=False, train=False)
-        return self.metrics(predictions, batch.label)
+        return self.metrics(predictions, batch.mask)
 
-    def metrics(self, pred, label):
-        mse = ((pred - label) ** 2).mean(axis=0)
-        score = mse / self.pipeline.baseline_mse
-        return {
-            "mse": mse,
-            "score": score
-        }
+    def metrics(self, pred, mask):
+        one_hot_labels = jax.nn.one_hot(mask, num_classes=pred.shape[-1])
+
+        def accuracy(logits, labels):
+            y_pred = jnp.argmax(logits, axis=-1)
+            correct = labels.squeeze() == y_pred
+            return jnp.mean(correct)
+
+        acc = accuracy(pred, jnp.argmax(one_hot_labels, axis=-1))
+        return {"accuracy": acc}
 
     def _get_random_crop(_, image_shape, key: jax.random.PRNGKey) -> list:
         # crop some random area with a similar aspect ratio
@@ -245,11 +248,14 @@ class ResNetExperiment:
 def main():
     input_shape = (64, 64, 150)
 
-    def preprocess_img(img):
-        return resize(img.astype(np.float32), input_shape)
+    def preprocess_img(img: np.ndarray):
+        if img.ndim == 2:
+            return resize(img.astype(np.float32), (*input_shape[:2], 1))
+        else:
+            return resize(img.astype(np.float32), input_shape)
 
     split = train_test_split(sample_count(), 0.3)
-    pipeline = get_data_pipeline(split, batch_size=64, preprocess_img=preprocess_img)
+    pipeline = get_data_pipeline(split, batch_size=32, preprocess_img=preprocess_img)
     test_data = get_test_data(preprocess_fn=preprocess_img, mean=pipeline.images.mean, var=pipeline.images.std_var)
     train_data = get_train_data(preprocess_fn=preprocess_img, mean=pipeline.images.mean, var=pipeline.images.std_var)
 

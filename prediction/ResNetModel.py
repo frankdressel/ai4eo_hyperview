@@ -15,11 +15,12 @@ class ResNetBlock(nn.Module):
     norm: ModuleDef
     act: Callable
     strides: Tuple[int, int] = (1, 1)
+    dilation_rate: Tuple[int, int] = (1, 1)
 
     @nn.compact
     def __call__(self, x, ):
         residual = x
-        y = self.conv(self.filters, (3, 3), self.strides)(x)
+        y = self.conv(self.filters, (3, 3), self.strides, kernel_dilation=self.dilation_rate)(x)
         y = self.norm()(y)
         y = self.act(y)
         y = self.conv(self.filters, (3, 3))(y)
@@ -40,6 +41,7 @@ class BottleneckResNetBlock(nn.Module):
     norm: ModuleDef
     act: Callable
     strides: Tuple[int, int] = (1, 1)
+    dilation_rate: Tuple[int, int] = (1, 1)
 
     @nn.compact
     def __call__(self, x):
@@ -47,7 +49,7 @@ class BottleneckResNetBlock(nn.Module):
         y = self.conv(self.filters, (1, 1))(x)
         y = self.norm()(y)
         y = self.act(y)
-        y = self.conv(self.filters, (3, 3), self.strides)(y)
+        y = self.conv(self.filters, (3, 3), self.strides, kernel_dilation=self.dilation_rate)(y)
         y = self.norm()(y)
         y = self.act(y)
         y = self.conv(self.filters * 4, (1, 1))(y)
@@ -61,6 +63,7 @@ class BottleneckResNetBlock(nn.Module):
         return self.act(residual + y)
 
 
+
 class ResNet(nn.Module):
     """ResNetV1."""
     stage_sizes: Sequence[int]
@@ -72,7 +75,6 @@ class ResNet(nn.Module):
     dtype: Any = jnp.float32
     act: Callable = nn.relu
     return_high_level_features: bool = False
-    axis_name: str = "batch"
 
     @nn.compact
     def __call__(self, x, train: bool = True):
@@ -81,7 +83,6 @@ class ResNet(nn.Module):
                        use_running_average=not train,
                        momentum=0.9,
                        epsilon=1e-5,
-                       axis_name=self.axis_name,
                        dtype=self.dtype)
 
         x = conv(self.num_filters, (7, 7), (2, 2),

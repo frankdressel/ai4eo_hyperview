@@ -227,7 +227,7 @@ def main():
         return resize(img.astype(np.float32), input_shape)
 
     split = train_test_split(sample_count(), 0.3)
-    pipeline = get_data_pipeline(split, batch_size=64, preprocess_img=preprocess_img)
+    pipeline = get_data_pipeline(split, batch_size=32, preprocess_img=preprocess_img)
     test_data = get_test_data(preprocess_fn=preprocess_img, mean=pipeline.images.mean, var=pipeline.images.std_var)
     train_data = get_train_data(preprocess_fn=preprocess_img, mean=pipeline.images.mean, var=pipeline.images.std_var)
 

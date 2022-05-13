@@ -23,7 +23,7 @@ class Split:
 
 def train_test_split(sample_count: int, test_split) -> Split:
     idx = np.arange(sample_count)
-    np.random.seed(42)
+    np.random.seed(60)
     np.random.shuffle(idx)
     test_samples = int((sample_count * test_split))
     train_samples = sample_count - test_samples
@@ -33,6 +33,7 @@ def train_test_split(sample_count: int, test_split) -> Split:
 
 def sample_count() -> int:
     assert len(pd.read_csv(LABEL_PATH)) == len(list(DATA_PATH.glob("*.npz")))
+    return 50 # DEBUG
     return len(list(DATA_PATH.glob("*.npz")))
 
 
@@ -78,7 +79,10 @@ def prepare_labels(label_path: Path, split: Split) -> LabelData:
 @dataclass
 class ImageData:
     train_images: np.ndarray  # array of prescaled images
+    train_masks: np.ndarray
+
     test_images: np.ndarray
+    test_masks: np.ndarray
 
     mean: np.ndarray  # channelwise
     std_var: np.ndarray  # channelwise
@@ -88,15 +92,22 @@ def prepare_data(data_path: Path, split: Split, preprocess_fn) -> ImageData:
     images = list(data_path.glob("*.npz"))
     # its a bad natural sort
     images.sort(key=lambda p: int(str(p).split("/")[-1].split(".")[0]))
-
+    images = images[:sample_count()]
     # Load all images to memory, dataset is small enough to not worry about it
     # Channels last format (transpose)
-    img_data: list[np.ndarray] = [np.ma.MaskedArray(**np.load(str(image))).data.transpose((1, 2, 0)) for image in
-                                  images]
+    loaded_data = [np.ma.MaskedArray(**np.load(str(image))) for image in images]
+    img_data: list[np.ndarray] = [img.data.transpose((1, 2, 0)) for img in
+                                  loaded_data]
+    mask_data: list[np.ndarray] = [img.mask.transpose((1, 2, 0))[:, :, 0] for img in
+                                  loaded_data]
+
 
     # probably possible in a more efficient way..
     train_img_data = np.array(img_data, dtype=object)[split.train_samples]
     test_img_data = np.array(img_data, dtype=object)[split.test_samples]
+
+    train_mask_data = np.array(mask_data, dtype=object)[split.train_samples]
+    test_mask_data = np.array(mask_data, dtype=object)[split.test_samples]
 
     means, variances = [], []
     for img in train_img_data:
@@ -107,21 +118,31 @@ def prepare_data(data_path: Path, split: Split, preprocess_fn) -> ImageData:
     var = np.array(variances).mean(axis=0)
 
     processed_train = []
+    processed_mask_train = []
     # normalize and preprocess to single size
-    for img in train_img_data:
+    for img, mask in zip(train_img_data, train_mask_data):
         norm = (img.astype(np.float32) - mean) / var
         preprocessed = preprocess_fn(norm)
+        preprocessed_mask = preprocess_fn(mask)
         processed_train.append(preprocessed)
+        processed_mask_train.append(preprocessed_mask)
 
     processed_test = []
-    for img in test_img_data:
+    processed_mask_test = []
+    for img, mask in zip(test_img_data, test_mask_data):
         norm = (img.astype(np.float32) - mean) / var
         preprocessed = preprocess_fn(norm)
+        preprocessed_mask = preprocess_fn(mask)
         processed_test.append(preprocessed)
+        processed_mask_test.append(preprocessed_mask)
 
     return ImageData(
         np.array(processed_train),
+        np.array(processed_mask_train),
+
         np.array(processed_test),
+        np.array(processed_mask_test),
+
         mean,
         var
     )
@@ -131,6 +152,7 @@ def prepare_data(data_path: Path, split: Split, preprocess_fn) -> ImageData:
 class Batch:
     image: jnp.ndarray
     label: jnp.ndarray
+    mask: jnp.ndarray
 
 
 @dataclass
@@ -153,8 +175,7 @@ def get_data(path: Path, preprocess_fn: Callable, mean: np.ndarray, var: np.ndar
     # Channels last format (transpose)
     masked_data: list[np.ndarray] = [np.ma.MaskedArray(**np.load(str(image))) for image in
                                   images]
-    img_data: list[np.ndarray] = [(masked.data * masked.mask).transpose((1,2,0)) for masked in masked_data]
-
+    img_data: list[np.ndarray] = [(masked.data).transpose((1,2,0)) for masked in masked_data]
     processed_test = []
     # normalize and preprocess to single size
     for img in img_data:
@@ -189,15 +210,17 @@ def get_data_pipeline(split: Split, batch_size: int, preprocess_img: Callable):
                 continue
             data_batch = images.train_images[train_samples]
             label_batch = labels.train_label_data[train_samples]
+            mask_batch = images.train_masks[train_samples] * 1
 
-            yield Batch(data_batch, label_batch)
+            yield Batch(data_batch, label_batch, mask_batch)
 
     def test_generator():
         for batch_pos in range(0, test_samples_count, batch_size):
             data_batch = images.test_images[batch_pos:batch_pos + batch_size]
             label_batch = labels.test_label_data[batch_pos:batch_pos + batch_size]
+            mask_batch = images.train_masks[batch_pos:batch_pos + batch_size] * 1
 
-            yield Batch(data_batch, label_batch)
+            yield Batch(data_batch, label_batch, mask_batch)
 
 
     shape = next(train_generator()).image.shape

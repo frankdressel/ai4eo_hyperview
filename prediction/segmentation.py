@@ -9,12 +9,11 @@ import jax.numpy as jnp
 class DeepLabHead(nn.Module):
     num_classes: int
     dtype: Any = jnp.float32
-    axis_name: str = "batch"
 
     @nn.compact
     def __call__(self, inputs, low_level_features, train: bool = False):
         conv = partial(nn.Conv, dtype=self.dtype, use_bias=False)
-        norm = partial(nn.BatchNorm, dtype=self.dtype, axis_name=self.axis_name, use_running_average=not train)
+        norm = partial(nn.BatchNorm, dtype=self.dtype, use_running_average=not train)
 
         if low_level_features is not None:
             low_level_features = conv(48, (1, 1))(low_level_features)
